@@ -12,6 +12,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -23,19 +24,24 @@ import java.util.List;
 public class SecurityConfig {
 
     private final String allowedOrigin;
+    private final JwtService jwtService;
+    private final CustomUserDetailsService userDetailsService;
 
-    public SecurityConfig(@Value("${app.cors.allowed-origin}") String allowedOrigin) {
+    public SecurityConfig(@Value("${app.cors.allowed-origin}") String allowedOrigin,
+                           JwtService jwtService,
+                           CustomUserDetailsService userDetailsService) {
         this.allowedOrigin = allowedOrigin;
+        this.jwtService = jwtService;
+        this.userDetailsService = userDetailsService;
     }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            // SPA uses a session cookie; CSRF is disabled here for simplicity.
-            // For production, prefer enabling CSRF with a cookie token repository.
+            // Stateless JWT sent via Authorization header, not a cookie — no CSRF exposure.
             .csrf(AbstractHttpConfigurer::disable)
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
@@ -47,7 +53,9 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex.authenticationEntryPoint(
                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             // Allow the H2 console (served in a frame) during development.
-            .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
+            .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
+            .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
+                UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

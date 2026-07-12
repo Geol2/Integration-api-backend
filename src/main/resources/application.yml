@@ -1,5 +1,8 @@
 server:
-  port: 8080
+  port: 8081
+  error:
+    include-message: always
+    include-binding-errors: always
 
 spring:
   application:
@@ -21,12 +24,16 @@ spring:
   h2:
     console:
       enabled: true
-      path: /h2-console      # http://localhost:8080/h2-console
+      path: /h2-console      # http://localhost:8081/h2-console
 
 # Frontend origin allowed to call this API (Vite dev server)
 app:
   cors:
     allowed-origin: http://localhost:5173
+  jwt:
+    # Dev-only placeholder — override via JWT_SECRET env var. Must be >=32 bytes for HS256.
+    secret: ${JWT_SECRET:dev-only-insecure-secret-please-override-32bytes-min}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:1440}   # 24h — convenient for local dev
 
 ---
 # ---- Prod profile: PostgreSQL ----
@@ -49,4 +56,7 @@ spring:
       enabled: false
 app:
   cors:
-    allowed-origin: ${FRONTEND_ORIGIN:http://localhost:5173}
+    allowed-origin: ${FRONTEND_ORIGIN:https://momentum.geol2.com}
+  jwt:
+    secret: ${JWT_SECRET}                              # no default — fail fast if unset in prod
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}

@@ -10,18 +10,18 @@
 ## 실행
 
 ```bash
-mvn spring-boot:run
+./gradlew bootRun
 ```
 
-- API: http://localhost:8080
-- H2 콘솔: http://localhost:8080/h2-console
+- API: http://localhost:8081
+- H2 콘솔: http://localhost:8081/h2-console
   - JDBC URL: `jdbc:h2:file:./data/integration`  /  사용자: `sa`  /  비번: (빈값)
 
 운영(PostgreSQL):
 
 ```bash
 DB_URL=jdbc:postgresql://localhost:5432/integration DB_USER=integration DB_PASSWORD=... \
-  mvn spring-boot:run -Dspring-boot.run.profiles=prod
+  ./gradlew bootRun --args='--spring.profiles.active=prod'
 ```
 
 ## 데이터 모델 (momentum_v3 프론트 localStorage → 테이블)
@@ -57,9 +57,9 @@ DB_URL=jdbc:postgresql://localhost:5432/integration DB_USER=integration DB_PASSW
 
 ## 프론트엔드 연동
 
-- 모든 요청에 `credentials: 'include'` (세션 쿠키 전송).
+- 인증은 stateless JWT: `/api/auth/login`·`/signup` 응답의 `token`을 저장해두고, 이후 요청에 `Authorization: Bearer <token>` 헤더로 전송.
 - CORS 허용 origin은 `application.yml`의 `app.cors.allowed-origin` (기본 `http://localhost:5173`).
-- 로컬 개발 시 Vite `server.proxy`로 `/api`를 8080에 프록시하면 쿠키/CORS가 더 매끄럽습니다.
+- 로컬 개발 시 Vite `server.proxy`로 `/api`를 8081에 프록시하면 CORS 걱정 없이 상대경로로 호출 가능.
 
 ## 다음 단계 (선택 · 학습용 이벤트 흐름)
 
