@@ -30,9 +30,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	// Dev DB: H2 (file-based, runs with no external setup)
-	runtimeOnly 'com.h2database:h2'
-	// Prod DB: PostgreSQL (activate via 'prod' profile)
+	// PostgreSQL — used for both dev (localhost:5433) and prod
 	runtimeOnly 'org.postgresql:postgresql'
 
 	// JWT

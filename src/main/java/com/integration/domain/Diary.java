@@ -33,8 +33,11 @@ public class Diary {
     @Column(nullable = false)
     private String title = "";
 
-    @Lob
-    @Column(nullable = false)
+    // Plain TEXT column, not @Lob: Hibernate maps @Lob String to Postgres's
+    // large-object (oid) type, which requires an active transaction to read back
+    // and throws "Unable to access lob stream" once the request-scoped tx has
+    // closed (h2 never surfaced this since it doesn't have Postgres's oid mechanism).
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String body = "";
 
     @Column(nullable = false)

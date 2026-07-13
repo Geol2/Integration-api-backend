@@ -4,18 +4,19 @@
 현재 첫 소비자는 `momentum_v3`(별빛 투두) 프론트엔드의 **계정별 일기/설정/할일/메모**.
 
 - Java 17 · Spring Boot 3.4 · Spring Security · Spring Data JPA
-- 개발 DB: H2 (파일 기반, 외부 설치 불필요) · 운영 DB: PostgreSQL (`prod` 프로파일)
-- 인증: 세션 쿠키 기반 (Spring Security)
+- DB: PostgreSQL (개발은 로컬 5433, 운영은 `prod` 프로파일)
+- 인증: stateless JWT (`Authorization: Bearer <token>`)
 
 ## 실행
 
+`DB_PASSWORD`는 기본값이 없습니다 (커밋되는 파일에 비밀번호를 넣지 않기 위함) — 실행 전에 셸에서 export 해주세요.
+
 ```bash
+export DB_PASSWORD=...   # 로컬 5433 Postgres의 integration 계정 비밀번호
 ./gradlew bootRun
 ```
 
 - API: http://localhost:8081
-- H2 콘솔: http://localhost:8081/h2-console
-  - JDBC URL: `jdbc:h2:file:./data/integration`  /  사용자: `sa`  /  비번: (빈값)
 
 운영(PostgreSQL):
 
@@ -42,10 +43,9 @@ DB_URL=jdbc:postgresql://localhost:5432/integration DB_USER=integration DB_PASSW
 ### 인증 `/api/auth`
 | 메서드 | 경로              | 설명                         |
 |--------|-------------------|------------------------------|
-| POST   | `/api/auth/signup`| 회원가입 `{email,password,name}` |
-| POST   | `/api/auth/login` | 로그인 → 세션 쿠키 발급       |
-| POST   | `/api/auth/logout`| 로그아웃(세션 무효화)         |
-| GET    | `/api/auth/me`    | 현재 로그인 사용자            |
+| POST   | `/api/auth/signup`| 회원가입 `{email,password,name}` → `{token,user}` |
+| POST   | `/api/auth/login` | 로그인 `{email,password}` → `{token,user}` |
+| GET    | `/api/auth/me`    | 현재 로그인 사용자 (Bearer 토큰 필요) |
 
 ### 리소스 (로그인 필요)
 | 리소스   | 엔드포인트                                                        |
