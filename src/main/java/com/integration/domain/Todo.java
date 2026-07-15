@@ -28,4 +28,8 @@ public class Todo {
 
     @Column(nullable = false)
     private int sortOrder = 0;
+
+    /** Which day this todo belongs to, e.g. "2026-07-15". Nullable for rows created before per-day todos. */
+    @Column(name = "date_key")
+    private String dateKey;
 }
