@@ -32,4 +32,12 @@ public class Todo {
     /** Which day this todo belongs to, e.g. "2026-07-15". Nullable for rows created before per-day todos. */
     @Column(name = "date_key")
     private String dateKey;
+
+    /** Optional time-of-day label, e.g. "14:30". Nullable. */
+    @Column(name = "time_label")
+    private String timeLabel;
+
+    /** Optional place/location, e.g. "강남역". Nullable. */
+    @Column
+    private String place;
 }

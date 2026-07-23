@@ -21,14 +21,18 @@ public class NoteController {
         this.currentUser = currentUser;
     }
 
-    public record NoteDto(Long id, String text, double x, double y, double rot, long ts) {
+    public record NoteDto(Long id, String text, double x, double y, double rot,
+                          double width, double height, String dateKey, boolean pinned, long ts) {
         static NoteDto of(Note n) {
-            return new NoteDto(n.getId(), n.getText(), n.getX(), n.getY(), n.getRot(), n.getTs());
+            return new NoteDto(n.getId(), n.getText(), n.getX(), n.getY(), n.getRot(),
+                    n.getWidth(), n.getHeight(), n.getDateKey(), n.isPinned(), n.getTs());
         }
     }
 
-    public record CreateNoteRequest(String text, double x, double y, double rot, long ts) {}
-    public record MoveNoteRequest(Double x, Double y, Double rot, String text) {}
+    public record CreateNoteRequest(String text, double x, double y, double rot,
+                                    Double width, Double height, String dateKey, long ts) {}
+    public record MoveNoteRequest(Double x, Double y, Double rot, String text,
+                                  Double width, Double height, Boolean pinned) {}
 
     @GetMapping
     public List<NoteDto> list() {
@@ -44,6 +48,9 @@ public class NoteController {
         n.setX(req.x());
         n.setY(req.y());
         n.setRot(req.rot());
+        if (req.width() != null) n.setWidth(req.width());
+        if (req.height() != null) n.setHeight(req.height());
+        n.setDateKey(req.dateKey());
         n.setTs(req.ts());
         return NoteDto.of(repo.save(n));
     }
@@ -56,6 +63,9 @@ public class NoteController {
         if (req.y() != null) n.setY(req.y());
         if (req.rot() != null) n.setRot(req.rot());
         if (req.text() != null) n.setText(req.text());
+        if (req.width() != null) n.setWidth(req.width());
+        if (req.height() != null) n.setHeight(req.height());
+        if (req.pinned() != null) n.setPinned(req.pinned());
         return NoteDto.of(repo.save(n));
     }
 

@@ -21,14 +21,17 @@ public class TodoController {
         this.currentUser = currentUser;
     }
 
-    public record TodoDto(Long id, String text, boolean done, int sortOrder, String dateKey) {
+    public record TodoDto(Long id, String text, boolean done, int sortOrder, String dateKey,
+                          String timeLabel, String place) {
         static TodoDto of(Todo t) {
-            return new TodoDto(t.getId(), t.getText(), t.isDone(), t.getSortOrder(), t.getDateKey());
+            return new TodoDto(t.getId(), t.getText(), t.isDone(), t.getSortOrder(), t.getDateKey(),
+                    t.getTimeLabel(), t.getPlace());
         }
     }
 
-    public record CreateTodoRequest(String text, String dateKey) {}
-    public record UpdateTodoRequest(String text, Boolean done, Integer sortOrder, String dateKey) {}
+    public record CreateTodoRequest(String text, String dateKey, String timeLabel, String place) {}
+    public record UpdateTodoRequest(String text, Boolean done, Integer sortOrder, String dateKey,
+                                    String timeLabel, String place) {}
 
     @GetMapping
     public List<TodoDto> list() {
@@ -43,6 +46,8 @@ public class TodoController {
         t.setUserId(currentUser.requireId());
         t.setText(req.text());
         t.setDateKey(req.dateKey());
+        t.setTimeLabel(req.timeLabel());
+        t.setPlace(req.place());
         return TodoDto.of(repo.save(t));
     }
 
@@ -54,6 +59,9 @@ public class TodoController {
         if (req.done() != null) t.setDone(req.done());
         if (req.sortOrder() != null) t.setSortOrder(req.sortOrder());
         if (req.dateKey() != null) t.setDateKey(req.dateKey());
+        // "" clears the field; null (omitted) leaves it unchanged.
+        if (req.timeLabel() != null) t.setTimeLabel(req.timeLabel().isBlank() ? null : req.timeLabel());
+        if (req.place() != null) t.setPlace(req.place().isBlank() ? null : req.place());
         return TodoDto.of(repo.save(t));
     }
 
