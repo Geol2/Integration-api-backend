@@ -1,11 +1,13 @@
 package com.integration.web;
 
+import com.integration.auth.EmailVerificationService;
 import com.integration.domain.User;
 import com.integration.repository.UserRepository;
 import com.integration.security.CurrentUserService;
 import com.integration.security.JwtService;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -26,23 +28,29 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final CurrentUserService currentUser;
     private final JwtService jwtService;
+    private final EmailVerificationService emailVerification;
 
     public AuthController(UserRepository users,
                           PasswordEncoder passwordEncoder,
                           AuthenticationManager authenticationManager,
                           CurrentUserService currentUser,
-                          JwtService jwtService) {
+                          JwtService jwtService,
+                          EmailVerificationService emailVerification) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.currentUser = currentUser;
         this.jwtService = jwtService;
+        this.emailVerification = emailVerification;
     }
+
+    public record RequestCodeRequest(@Email @NotBlank String email) {}
 
     public record SignupRequest(
             @Email @NotBlank String email,
             @NotBlank @Size(min = 6, max = 100) String password,
-            @NotBlank String name) {}
+            @NotBlank String name,
+            @NotBlank @Pattern(regexp = "\\d{6}", message = "code must be 6 digits") String code) {}
 
     public record LoginRequest(
             @Email @NotBlank String email,
@@ -56,8 +64,18 @@ public class AuthController {
 
     public record AuthResponse(String token, UserResponse user) {}
 
+    /** Step 1 of signup: email a 6-digit verification code to the given address. */
+    @PostMapping("/request-code")
+    public ResponseEntity<Void> requestCode(@Valid @RequestBody RequestCodeRequest req) {
+        emailVerification.requestCode(req.email());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Step 2 of signup: verify the emailed code, then create the account. */
     @PostMapping("/signup")
     public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest req) {
+        // Consume the code first — an invalid/expired code 400s before we touch users.
+        emailVerification.verifyAndConsume(req.email(), req.code());
         if (users.existsByEmail(req.email())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }

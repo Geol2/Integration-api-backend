@@ -24,6 +24,22 @@ spring:
       hibernate:
         format_sql: true
 
+  # ---- Email (Gmail SMTP) — used to deliver signup verification codes ----
+  # Set MAIL_USERNAME (your Gmail address) and MAIL_APP_PASSWORD (a Google
+  # "app password", NOT your login password) in your shell before running.
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_APP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
 # Frontend origin allowed to call this API (Vite dev server)
 app:
   cors:
@@ -32,6 +48,11 @@ app:
     # Dev-only placeholder — override via JWT_SECRET env var. Must be >=32 bytes for HS256.
     secret: ${JWT_SECRET:dev-only-insecure-secret-please-override-32bytes-min}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:1440}   # 24h — convenient for local dev
+  verification:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}        # sender shown on the code email
+    code-ttl-minutes: ${VERIFY_TTL_MINUTES:10}  # how long a code stays valid
+    resend-cooldown-seconds: ${VERIFY_RESEND_COOLDOWN:60}
+    max-attempts: ${VERIFY_MAX_ATTEMPTS:5}      # wrong tries before a code is burned
 
 ---
 # ---- Prod profile: PostgreSQL ----
