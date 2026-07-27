@@ -31,6 +31,12 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
 
+	// Web Push (VAPID + aes128gcm) for todo reminders. BouncyCastle is required at
+	// runtime — the JDK's own EC provider can't do the ECDH/HKDF key agreement that
+	// push payload encryption needs.
+	implementation 'nl.martijndwars:web-push:5.1.1'
+	implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+
 	// PostgreSQL — used for both dev (localhost:5433) and prod
 	runtimeOnly 'org.postgresql:postgresql'
 
@@ -49,4 +55,14 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// Prints a VAPID key pair for the push reminders: ./gradlew -q vapidKeys
+// Run once per environment; rotating the public key invalidates every browser
+// subscription, forcing all users to re-enable alerts.
+tasks.register('vapidKeys', JavaExec) {
+	group = 'application'
+	description = 'Generate a VAPID key pair for Web Push'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.integration.push.VapidKeyGenerator'
 }

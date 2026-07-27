@@ -48,6 +48,20 @@ app:
     # Dev-only placeholder — override via JWT_SECRET env var. Must be >=32 bytes for HS256.
     secret: ${JWT_SECRET:dev-only-insecure-secret-please-override-32bytes-min}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:1440}   # 24h — convenient for local dev
+  # ---- Web Push (할 일 시간 알림) ----
+  # Generate the key pair once with `./gradlew -q vapidKeys` and export both values.
+  # Leaving them unset simply disables reminders — the API still boots normally.
+  push:
+    vapid:
+      public-key: ${VAPID_PUBLIC_KEY:}
+      private-key: ${VAPID_PRIVATE_KEY:}
+      subject: ${VAPID_SUBJECT:mailto:big9401@gmail.com}
+    # dateKey/timeLabel are local wall-clock as typed by the user, so they're resolved in this zone.
+    zone: ${PUSH_ZONE:Asia/Seoul}
+    default-lead-minutes: ${PUSH_LEAD_MINUTES:10}   # used when a user hasn't picked their own
+    grace-minutes: ${PUSH_GRACE_MINUTES:30}         # how late a missed reminder may still arrive
+    app-url: ${PUSH_APP_URL:http://localhost:5173}  # opened when the notification is tapped
+
   verification:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}        # sender shown on the code email
     code-ttl-minutes: ${VERIFY_TTL_MINUTES:10}  # how long a code stays valid
@@ -79,3 +93,5 @@ app:
   jwt:
     secret: ${JWT_SECRET}                              # no default — fail fast if unset in prod
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+  push:
+    app-url: ${PUSH_APP_URL:https://momentum.geol2.com}
