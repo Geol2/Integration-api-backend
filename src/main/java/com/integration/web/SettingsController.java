@@ -18,10 +18,11 @@ public class SettingsController {
     }
 
     public record SettingsDto(String userName, boolean use24h, boolean showSeconds,
-                              String tempUnit, boolean showQuote, String background) {
+                              String tempUnit, boolean showQuote, String background,
+                              Integer remindLeadMinutes) {
         static SettingsDto of(Settings s) {
             return new SettingsDto(s.getUserName(), s.isUse24h(), s.isShowSeconds(),
-                    s.getTempUnit(), s.isShowQuote(), s.getBackground());
+                    s.getTempUnit(), s.isShowQuote(), s.getBackground(), s.getRemindLeadMinutes());
         }
     }
 
@@ -43,6 +44,11 @@ public class SettingsController {
         s.setTempUnit(dto.tempUnit());
         s.setShowQuote(dto.showQuote());
         s.setBackground(dto.background());
+        // Omitted (null) keeps the stored value — an older client that doesn't know about
+        // reminders must not silently wipe the user's lead time on every settings save.
+        if (dto.remindLeadMinutes() != null && dto.remindLeadMinutes() >= 0) {
+            s.setRemindLeadMinutes(dto.remindLeadMinutes());
+        }
         return SettingsDto.of(repo.save(s));
     }
 }

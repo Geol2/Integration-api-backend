@@ -58,10 +58,17 @@ public class TodoController {
         if (req.text() != null) t.setText(req.text());
         if (req.done() != null) t.setDone(req.done());
         if (req.sortOrder() != null) t.setSortOrder(req.sortOrder());
+
+        // Moving the appointment re-arms its reminder: clearing remindedAt puts the todo
+        // back in the scheduler's candidate set, so a rescheduled 14:00 → 18:00 still buzzes.
+        boolean rescheduled = (req.dateKey() != null && !req.dateKey().equals(t.getDateKey()))
+                || (req.timeLabel() != null && !req.timeLabel().equals(t.getTimeLabel()));
+
         if (req.dateKey() != null) t.setDateKey(req.dateKey());
         // "" clears the field; null (omitted) leaves it unchanged.
         if (req.timeLabel() != null) t.setTimeLabel(req.timeLabel().isBlank() ? null : req.timeLabel());
         if (req.place() != null) t.setPlace(req.place().isBlank() ? null : req.place());
+        if (rescheduled) t.setRemindedAt(null);
         return TodoDto.of(repo.save(t));
     }
 

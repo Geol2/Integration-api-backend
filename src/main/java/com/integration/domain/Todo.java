@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
+
 /** 1:N with {@link User}. Mirrors byeolbit_todos in localStorage. */
 @Entity
 @Table(name = "todos")
@@ -40,4 +42,12 @@ public class Todo {
     /** Optional place/location, e.g. "강남역". Nullable. */
     @Column
     private String place;
+
+    /**
+     * When the reminder push for this todo was sent. Null = not sent yet, which is what
+     * the scheduler scans for, so a todo notifies exactly once. Cleared whenever dateKey
+     * or timeLabel changes — a rescheduled appointment gets a fresh reminder.
+     */
+    @Column(name = "reminded_at")
+    private Instant remindedAt;
 }

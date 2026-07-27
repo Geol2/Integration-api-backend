@@ -37,6 +37,14 @@ public class Settings {
     @Column(nullable = false)
     private String background = "mountain";
 
+    /**
+     * How many minutes before a todo's time its reminder push fires. Nullable so the
+     * column can be added to existing rows without a backfill; readers coalesce null
+     * to the configured default.
+     */
+    @Column(name = "remind_lead_minutes")
+    private Integer remindLeadMinutes = 10;
+
     public Settings(Long userId) {
         this.userId = userId;
     }
