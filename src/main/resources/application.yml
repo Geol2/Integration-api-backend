@@ -92,6 +92,9 @@ app:
     allowed-origin: ${FRONTEND_ORIGIN:https://momentum.geol2.com}
   jwt:
     secret: ${JWT_SECRET}                              # no default — fail fast if unset in prod
-    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+    # 7일. 슬라이딩 만료(JwtAuthenticationFilter)가 사용 중에는 계속 연장해주므로,
+    # 이 값은 "완전히 방치된 세션이 죽는 시점"을 뜻합니다. 60분이던 시절에는 잠깐
+    # 자리를 비우기만 해도 할 일 등록이 실패했습니다.
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:10080}
   push:
     app-url: ${PUSH_APP_URL:https://momentum.geol2.com}

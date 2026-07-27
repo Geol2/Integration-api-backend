@@ -23,6 +23,9 @@ import java.io.IOException;
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    /** 갱신된 토큰을 실어 보내는 응답 헤더. CORS 환경에서는 노출 헤더로 선언해야 읽힙니다. */
+    public static final String RENEWED_TOKEN_HEADER = "X-Renewed-Token";
+
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
 
@@ -46,6 +49,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         userDetails, null, userDetails.getAuthorities());
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
+
+                // 슬라이딩 만료: 수명이 절반 이하로 남았으면 새 토큰을 헤더로 돌려줍니다.
+                // 프론트(api.js)가 이 헤더를 보고 저장된 토큰을 조용히 교체합니다.
+                if (jwtService.shouldRenew(token)) {
+                    response.setHeader(RENEWED_TOKEN_HEADER, jwtService.generateToken(email));
+                }
             } catch (JwtException | IllegalArgumentException | UsernameNotFoundException e) {
                 // Invalid/expired/tampered token, or user deleted since it was issued.
                 // Leave the context empty — anyRequest().authenticated() will 401 downstream.

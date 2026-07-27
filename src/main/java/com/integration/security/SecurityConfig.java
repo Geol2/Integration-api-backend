@@ -76,6 +76,10 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(allowedOrigin));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
+        // 브라우저는 기본적으로 소수의 응답 헤더만 JS에 노출합니다. 갱신 토큰 헤더를
+        // 여기 명시하지 않으면 cross-origin 환경에서 프론트가 읽지 못해 슬라이딩 만료가
+        // 조용히 동작하지 않습니다.
+        config.setExposedHeaders(List.of(JwtAuthenticationFilter.RENEWED_TOKEN_HEADER));
         config.setAllowCredentials(true); // required so the browser sends the session cookie
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
