@@ -1,5 +1,7 @@
 package com.integration.recording;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -11,6 +13,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -27,6 +30,11 @@ import java.time.Duration;
  */
 @Service
 public class RecordingUploadService {
+
+    private static final Logger log = LoggerFactory.getLogger(RecordingUploadService.class);
+
+    /** n8n Webhook 노드의 Header Auth에 설정한 헤더 이름과 같아야 합니다. */
+    private static final String KEY_HEADER = "X-Recording-Key";
 
     private final String webhookUrl;
     private final String webhookKey;
@@ -73,24 +81,34 @@ public class RecordingUploadService {
         body.add("title", title);
         body.add("userId", String.valueOf(userId));
         body.add("userEmail", userEmail);
-        // n8n 쪽 웹훅에 Header Auth를 걸어뒀다면 이 값으로 맞춥니다. 서버 간 통신이라
-        // 이제는 진짜 비밀로 유지됩니다. 웹훅을 내부망에만 열어뒀다면 비워둬도 됩니다.
-        if (!webhookKey.isBlank()) {
-            body.add("key", webhookKey);
-        }
 
         try {
             client.post()
                     .uri(webhookUrl)
                     .contentType(MediaType.MULTIPART_FORM_DATA)
+                    // n8n Webhook 노드의 Header Auth가 기다리는 헤더입니다. 브라우저가
+                    // 직접 호출하던 시절에는 커스텀 헤더가 CORS 프리플라이트를 강제해서
+                    // 폼 필드로 우회했지만, 서버 간 호출에는 프리플라이트가 없습니다.
+                    // 비워두면 헤더를 아예 붙이지 않으므로 인증 없는 웹훅에도 그대로 씁니다.
+                    .headers(h -> {
+                        if (!webhookKey.isBlank()) h.set(KEY_HEADER, webhookKey);
+                    })
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
-        } catch (RestClientException e) {
-            // n8n이 죽었거나 느린 것은 우리 API의 잘못이 아니므로 502로 구분해서
-            // 알립니다. 프론트는 이 상태를 보고 "다시 시도"를 안내합니다.
+        } catch (RestClientResponseException e) {
+            // 응답 본문에 n8n이 거부한 이유가 담겨 있습니다. 이걸 남기지 않으면
+            // 화면에는 502만 뜨고 서버 로그는 조용해서 원인을 알 수 없습니다.
+            log.warn("n8n webhook rejected the recording upload: {} {}",
+                    e.getStatusCode(), e.getResponseBodyAsString());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Recording webhook rejected the upload: " + e.getMessage());
+                    "Recording webhook rejected the upload (" + e.getStatusCode() + ")");
+        } catch (RestClientException e) {
+            // 연결 실패·타임아웃. n8n이 죽었거나 느린 것은 우리 API의 잘못이 아니므로
+            // 502로 구분해 알립니다. 프론트는 이 상태를 보고 "다시 시도"를 안내합니다.
+            log.warn("n8n webhook is unreachable", e);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Recording webhook is unreachable");
         }
     }
 }
