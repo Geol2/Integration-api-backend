@@ -49,7 +49,14 @@ public class RecordingUploadService {
         // JDK 클라이언트는 요청 본문을 스트리밍합니다. 1시간짜리 오디오를 통째로
         // 힙에 올리지 않기 위해 이 팩토리를 씁니다.
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+                HttpClient.newBuilder()
+                        // HTTP/1.1을 못박습니다. JDK 클라이언트는 기본이 HTTP/2라, 평문
+                        // http:// 로 보낼 때 Upgrade: h2c 를 시도합니다. n8n(Express)은
+                        // h2c를 지원하지 않고, 본문이 실린 POST가 응답 없이 멈춰버립니다.
+                        // https:// 로 갈 때는 ALPN이 알아서 협상해 드러나지 않던 문제입니다.
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build());
         // 브라우저 → 이 API 구간은 Cloudflare Tunnel(약 100초 상한)을 지나므로, 그보다
         // 오래 기다려봐야 사용자 쪽 연결은 이미 끊긴 뒤입니다. 톰캣 스레드만 붙잡히죠.
         // 그래서 그 아래로 잡되, 로컬호스트로 큰 파일을 넘길 시간은 남겨둡니다.
