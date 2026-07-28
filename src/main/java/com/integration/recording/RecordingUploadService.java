@@ -50,8 +50,13 @@ public class RecordingUploadService {
         // 힙에 올리지 않기 위해 이 팩토리를 씁니다.
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
-        // n8n이 파일을 받아 저장까지 마친 뒤에 응답하므로 넉넉히 잡습니다.
-        factory.setReadTimeout(Duration.ofMinutes(3));
+        // 브라우저 → 이 API 구간은 Cloudflare Tunnel(약 100초 상한)을 지나므로, 그보다
+        // 오래 기다려봐야 사용자 쪽 연결은 이미 끊긴 뒤입니다. 톰캣 스레드만 붙잡히죠.
+        // 그래서 그 아래로 잡되, 로컬호스트로 큰 파일을 넘길 시간은 남겨둡니다.
+        // (JDK 클라이언트의 timeout은 본문 전송까지 포함한 전체 시간입니다.)
+        // n8n Webhook 노드는 Respond=Immediately 여야 합니다 — 워크플로가 끝날 때까지
+        // 응답을 미루면 이 시간 안에 못 들어옵니다.
+        factory.setReadTimeout(Duration.ofSeconds(60));
         this.client = RestClient.builder().requestFactory(factory).build();
     }
 
