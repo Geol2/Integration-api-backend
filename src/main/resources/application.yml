@@ -3,10 +3,22 @@ server:
   error:
     include-message: always
     include-binding-errors: always
+  tomcat:
+    # 크기를 초과한 업로드는 파싱 단계에서 거부되는데, 남은 본문을 읽어 비우지 않으면
+    # 톰캣이 연결을 끊어버려 브라우저가 413 대신 네트워크 오류를 보게 됩니다.
+    max-swallow-size: -1
 
 spring:
   application:
     name: integration-api-backend
+
+  # ---- 회의록 녹음 업로드 ----
+  # 기본값(파일 1MB)이면 몇 분짜리 녹음도 거부됩니다. 32kbps 기준 1시간이 약 14MB이고,
+  # 상한은 Cloudflare 무료 플랜의 100MB에 맞췄습니다.
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 110MB
 
   # ---- Dev default: local PostgreSQL (matches prod's DB engine) ----
   # DB_PASSWORD has no default on purpose — export it in your shell before running
@@ -61,6 +73,14 @@ app:
     default-lead-minutes: ${PUSH_LEAD_MINUTES:10}   # used when a user hasn't picked their own
     grace-minutes: ${PUSH_GRACE_MINUTES:30}         # how late a missed reminder may still arrive
     app-url: ${PUSH_APP_URL:http://localhost:5173}  # opened when the notification is tapped
+
+  # ---- 회의록 녹음 → n8n 전달 ----
+  # 브라우저는 /api/recordings 로만 보내고, 웹훅 주소와 키는 여기(서버)에만 둡니다.
+  # 프론트에 두면 번들에 인라인되어 누구나 읽을 수 있고, 공유 키라 "누가 올렸는지"도
+  # 알 수 없었습니다. 비워두면 업로드가 503으로 응답할 뿐 API는 정상 기동합니다.
+  recording:
+    webhook-url: ${N8N_RECORDING_WEBHOOK_URL:}
+    webhook-key: ${N8N_RECORDING_KEY:}
 
   verification:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}        # sender shown on the code email
