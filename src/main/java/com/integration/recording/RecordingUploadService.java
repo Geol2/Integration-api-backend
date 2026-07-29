@@ -19,7 +19,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /**
@@ -83,16 +82,14 @@ public class RecordingUploadService {
         }
 
         HttpHeaders partHeaders = new HttpHeaders();
-        // 파일명을 RFC 5987 형식(filename*=UTF-8''…)으로 내보냅니다. setContentDispositionFormData가
-        // 만드는 평범한 filename="한글.webm"은 n8n(Node)의 멀티파트 파서(busboy/formidable)가
-        // latin1로 디코딩해 한글이 깨지고, 그대로 Google Drive 파일명이 됩니다. charset을 준
-        // ContentDisposition은 filename*=UTF-8''%ED%9A%8C… 로 인코딩해 UTF-8로 정확히 복원되게 합니다.
-        ContentDisposition.Builder disposition = ContentDisposition.formData().name("audio");
+        // 파일명은 프론트에서 ASCII(recording_날짜시각)로 고정해 보냅니다. 이 n8n의 멀티파트
+        // 파서는 filename*(RFC 5987)을 읽지 않고 평범한 filename=만 읽으므로, 여기서도 평범한
+        // 형식으로 내보냅니다(ASCII라 깨지지 않습니다). 한글 제목은 별도 title 필드로 전달됩니다.
         String originalFilename = file.getOriginalFilename();
-        if (originalFilename != null && !originalFilename.isBlank()) {
-            disposition.filename(originalFilename, StandardCharsets.UTF_8);
-        }
-        partHeaders.setContentDisposition(disposition.build());
+        partHeaders.setContentDisposition(ContentDisposition.formData()
+                .name("audio")
+                .filename(originalFilename != null && !originalFilename.isBlank() ? originalFilename : "recording")
+                .build());
         if (file.getContentType() != null) {
             partHeaders.setContentType(MediaType.parseMediaType(file.getContentType()));
         }
