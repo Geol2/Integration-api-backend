@@ -3,6 +3,7 @@ package com.integration.recording;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /**
@@ -81,7 +83,16 @@ public class RecordingUploadService {
         }
 
         HttpHeaders partHeaders = new HttpHeaders();
-        partHeaders.setContentDispositionFormData("audio", file.getOriginalFilename());
+        // 파일명을 RFC 5987 형식(filename*=UTF-8''…)으로 내보냅니다. setContentDispositionFormData가
+        // 만드는 평범한 filename="한글.webm"은 n8n(Node)의 멀티파트 파서(busboy/formidable)가
+        // latin1로 디코딩해 한글이 깨지고, 그대로 Google Drive 파일명이 됩니다. charset을 준
+        // ContentDisposition은 filename*=UTF-8''%ED%9A%8C… 로 인코딩해 UTF-8로 정확히 복원되게 합니다.
+        ContentDisposition.Builder disposition = ContentDisposition.formData().name("audio");
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename != null && !originalFilename.isBlank()) {
+            disposition.filename(originalFilename, StandardCharsets.UTF_8);
+        }
+        partHeaders.setContentDisposition(disposition.build());
         if (file.getContentType() != null) {
             partHeaders.setContentType(MediaType.parseMediaType(file.getContentType()));
         }
