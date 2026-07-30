@@ -19,10 +19,11 @@ public class SettingsController {
 
     public record SettingsDto(String userName, boolean use24h, boolean showSeconds,
                               String tempUnit, boolean showQuote, String background,
-                              Integer remindLeadMinutes) {
+                              Integer remindLeadMinutes, Boolean shuffleBgOnReturn) {
         static SettingsDto of(Settings s) {
             return new SettingsDto(s.getUserName(), s.isUse24h(), s.isShowSeconds(),
-                    s.getTempUnit(), s.isShowQuote(), s.getBackground(), s.getRemindLeadMinutes());
+                    s.getTempUnit(), s.isShowQuote(), s.getBackground(), s.getRemindLeadMinutes(),
+                    s.getShuffleBgOnReturn());
         }
     }
 
@@ -48,6 +49,10 @@ public class SettingsController {
         // reminders must not silently wipe the user's lead time on every settings save.
         if (dto.remindLeadMinutes() != null && dto.remindLeadMinutes() >= 0) {
             s.setRemindLeadMinutes(dto.remindLeadMinutes());
+        }
+        // Omitted (null) keeps the stored value, same reasoning as remindLeadMinutes above.
+        if (dto.shuffleBgOnReturn() != null) {
+            s.setShuffleBgOnReturn(dto.shuffleBgOnReturn());
         }
         return SettingsDto.of(repo.save(s));
     }

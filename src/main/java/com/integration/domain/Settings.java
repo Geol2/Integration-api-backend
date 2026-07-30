@@ -45,6 +45,14 @@ public class Settings {
     @Column(name = "remind_lead_minutes")
     private Integer remindLeadMinutes = 10;
 
+    /**
+     * When true, returning to the tab (visibilitychange → visible) shuffles the scenery
+     * background to a different one. Nullable so the column can be added to existing rows
+     * without a backfill; readers coalesce null to true (feature on by default).
+     */
+    @Column(name = "shuffle_bg_on_return")
+    private Boolean shuffleBgOnReturn = true;
+
     public Settings(Long userId) {
         this.userId = userId;
     }
