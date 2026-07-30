@@ -44,6 +44,9 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                // 서버-대-서버 내부 엔드포인트(n8n → Web Push). JWT 대신 X-Internal-Key로
+                // 자체 검증하므로 여기서 permitAll로 열되, 컨트롤러에서 키를 확인합니다.
+                .requestMatchers("/internal/**").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
                 // Error dispatch must be reachable, else parse/validation errors surface as 401.
                 .requestMatchers("/error").permitAll()

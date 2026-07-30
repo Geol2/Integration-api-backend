@@ -82,6 +82,12 @@ app:
     webhook-url: ${N8N_RECORDING_WEBHOOK_URL:}
     webhook-key: ${N8N_RECORDING_KEY:}
 
+  # ---- 서버-대-서버 내부 호출 키 (n8n → /internal/push) ----
+  # n8n이 회의록 저장 성공/실패를 알려올 때 쓰는 공유 비밀. 비워두면 /internal/push가
+  # 전부 403이라(fail-closed) 실수로 열리지 않습니다. n8n Header Auth 값과 같아야 합니다.
+  internal:
+    api-key: ${INTERNAL_API_KEY:}
+
   verification:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}        # sender shown on the code email
     code-ttl-minutes: ${VERIFY_TTL_MINUTES:10}  # how long a code stays valid
