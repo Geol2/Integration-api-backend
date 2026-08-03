@@ -117,7 +117,7 @@ public class MailService {
                           </tr>
 
                         </table>
-                        <div style="font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:11px;color:#9aa3bd;margin-top:16px;">&copy; 모멘텀</div>
+                        <div style="font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-size:11px;color:#9aa3bd;margin-top:16px;">&copy; 2026 Geol2 &middot; big9401@gmail.com</div>
                       </td>
                     </tr>
                   </table>
