@@ -48,13 +48,29 @@ public class EmailVerificationService {
         this.maxAttempts = maxAttempts;
     }
 
-    /** Generate a fresh code for {@code email} and mail it. */
+    /** Generate a fresh signup code for {@code email} and mail it. */
     @Transactional
     public void requestCode(String email) {
         if (users.existsByEmail(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
+        issue(email, false);
+    }
 
+    /**
+     * Generate a fresh password-reset code and mail it. Unknown addresses are a silent
+     * no-op — the caller returns the same 204 either way, so the response can't be used
+     * to probe which emails have an account. (The resend cooldown still 429s, but that
+     * only fires after a real mail has already gone out to the address owner.)
+     */
+    @Transactional
+    public void requestPasswordResetCode(String email) {
+        if (!users.existsByEmail(email)) return;
+        issue(email, true);
+    }
+
+    /** Shared issue path: rotate the challenge row for {@code email}, then mail the code. */
+    private void issue(String email, boolean passwordReset) {
         Instant now = Instant.now();
         EmailVerification ev = verifications.findByEmail(email).orElse(null);
         if (ev != null && Duration.between(ev.getLastSentAt(), now).getSeconds() < resendCooldownSeconds) {
@@ -78,7 +94,11 @@ public class EmailVerificationService {
 
         // Send only after the row is persisted so a mail failure doesn't leave a
         // half-written challenge — the @Transactional rolls the save back on throw.
-        mailService.sendVerificationCode(email, code, ttlMinutes);
+        if (passwordReset) {
+            mailService.sendPasswordResetCode(email, code, ttlMinutes);
+        } else {
+            mailService.sendVerificationCode(email, code, ttlMinutes);
+        }
     }
 
     /**

@@ -56,6 +56,13 @@ public class AuthController {
             @Email @NotBlank String email,
             @NotBlank String password) {}
 
+    public record ForgotPasswordRequest(@Email @NotBlank String email) {}
+
+    public record ResetPasswordRequest(
+            @Email @NotBlank String email,
+            @NotBlank @Pattern(regexp = "\\d{6}", message = "code must be 6 digits") String code,
+            @NotBlank @Size(min = 6, max = 100) String password) {}
+
     public record UserResponse(Long id, String email, String name) {
         static UserResponse of(User u) {
             return new UserResponse(u.getId(), u.getEmail(), u.getName());
@@ -100,6 +107,32 @@ public class AuthController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         String token = jwtService.generateToken(user.getEmail());
         return new AuthResponse(token, UserResponse.of(user));
+    }
+
+    /**
+     * Step 1 of the password reset: email a 6-digit code. Always 204, even for an
+     * address with no account — the response must not reveal who is registered.
+     */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        emailVerification.requestPasswordResetCode(req.email());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Step 2 of the password reset: verify the code, then replace the password. */
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        // Consume the code first — an invalid/expired code 400s before we touch the user.
+        emailVerification.verifyAndConsume(req.email(), req.code());
+        // A code only exists for a registered address (requestPasswordResetCode no-ops
+        // otherwise), so a missing user here means the account was deleted mid-flow.
+        User user = users.findByEmail(req.email())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account not found"));
+        user.setPasswordHash(passwordEncoder.encode(req.password()));
+        users.save(user);
+        // No auto-login: the user re-enters the new password so it's committed to memory,
+        // and any device that had the old password stays logged out until it's used.
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")
