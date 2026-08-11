@@ -5,6 +5,8 @@ import com.integration.repository.SettingsRepository;
 import com.integration.security.CurrentUserService;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalTime;
+
 @RestController
 @RequestMapping("/api/settings")
 public class SettingsController {
@@ -19,11 +21,13 @@ public class SettingsController {
 
     public record SettingsDto(String userName, boolean use24h, boolean showSeconds,
                               String tempUnit, boolean showQuote, String background,
-                              Integer remindLeadMinutes, Boolean shuffleBgOnReturn) {
+                              Integer remindLeadMinutes, Boolean shuffleBgOnReturn,
+                              Boolean habitRemind, String habitMorningTime, String habitEveningTime) {
         static SettingsDto of(Settings s) {
             return new SettingsDto(s.getUserName(), s.isUse24h(), s.isShowSeconds(),
                     s.getTempUnit(), s.isShowQuote(), s.getBackground(), s.getRemindLeadMinutes(),
-                    s.getShuffleBgOnReturn());
+                    s.getShuffleBgOnReturn(),
+                    s.getHabitRemind(), s.getHabitMorningTime(), s.getHabitEveningTime());
         }
     }
 
@@ -54,6 +58,29 @@ public class SettingsController {
         if (dto.shuffleBgOnReturn() != null) {
             s.setShuffleBgOnReturn(dto.shuffleBgOnReturn());
         }
+        if (dto.habitRemind() != null) {
+            s.setHabitRemind(dto.habitRemind());
+        }
+        // 시각은 스케줄러가 매분 파싱하는 값이라, 알아볼 수 없는 문자열은 저장 단계에서 막습니다.
+        // (잘못 들어가도 스케줄러가 서버 기본값으로 떨어지지만, 사용자는 자기가 고른 시각에
+        //  안 오는 이유를 알 길이 없습니다.)
+        if (isValidTime(dto.habitMorningTime())) {
+            s.setHabitMorningTime(dto.habitMorningTime().trim());
+        }
+        if (isValidTime(dto.habitEveningTime())) {
+            s.setHabitEveningTime(dto.habitEveningTime().trim());
+        }
         return SettingsDto.of(repo.save(s));
+    }
+
+    /** "HH:mm" 인지. null(=이 필드는 그대로 두라는 뜻)이면 false. */
+    private static boolean isValidTime(String raw) {
+        if (raw == null || raw.isBlank()) return false;
+        try {
+            LocalTime.parse(raw.trim());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

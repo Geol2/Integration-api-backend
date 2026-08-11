@@ -73,6 +73,11 @@ app:
     default-lead-minutes: ${PUSH_LEAD_MINUTES:10}   # used when a user hasn't picked their own
     grace-minutes: ${PUSH_GRACE_MINUTES:30}         # how late a missed reminder may still arrive
     app-url: ${PUSH_APP_URL:http://localhost:5173}  # opened when the notification is tapped
+    # 습관 알림 — 사용자가 설정에서 고르지 않았을 때의 기본 시각(위 zone 기준 로컬 시각)
+    habit:
+      morning-time: ${PUSH_HABIT_MORNING:07:00}   # 오늘 할 습관 예고
+      evening-time: ${PUSH_HABIT_EVENING:22:00}   # 아직 체크 안 한 습관 확인
+      grace-minutes: ${PUSH_HABIT_GRACE:60}       # 서버가 쉬고 있었을 때 늦게라도 보낼 허용 시간
 
   # ---- 회의록 녹음 → n8n 전달 ----
   # 브라우저는 /api/recordings 로만 보내고, 웹훅 주소와 키는 여기(서버)에만 둡니다.

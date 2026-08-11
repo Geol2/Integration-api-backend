@@ -17,6 +17,9 @@ public interface HabitLogRepository extends JpaRepository<HabitLog, Long> {
      */
     List<HabitLog> findByUserIdAndDateKeyBetween(Long userId, String from, String to);
 
+    /** 하루치만 필요한 곳(습관 알림 스케줄러)에서 씁니다. */
+    List<HabitLog> findByUserIdAndDateKey(Long userId, String dateKey);
+
     Optional<HabitLog> findByHabitIdAndDateKey(Long habitId, String dateKey);
 
     void deleteByHabitIdAndDateKey(Long habitId, String dateKey);
