@@ -56,6 +56,8 @@ spring:
 app:
   cors:
     allowed-origin: http://localhost:5173
+    # 웹 외 앱 오리진 패턴(쉼표 구분). Even G2 설치형 앱 = http://127.0.0.1:<랜덤 포트>
+    app-origin-patterns: ${CORS_APP_ORIGIN_PATTERNS:http://127.0.0.1:[*],http://localhost:[*]}
   jwt:
     # Dev-only placeholder — override via JWT_SECRET env var. Must be >=32 bytes for HS256.
     secret: ${JWT_SECRET:dev-only-insecure-secret-please-override-32bytes-min}
@@ -121,6 +123,8 @@ spring:
 app:
   cors:
     allowed-origin: ${FRONTEND_ORIGIN:https://momentum.geol2.com}
+    # Even G2 설치형 앱(.ehpk). 오리진이 다르게 찍히면 CORS_APP_ORIGIN_PATTERNS 로 덮어쓰세요.
+    app-origin-patterns: ${CORS_APP_ORIGIN_PATTERNS:http://127.0.0.1:[*]}
   jwt:
     secret: ${JWT_SECRET}                              # no default — fail fast if unset in prod
     # 7일. 슬라이딩 만료(JwtAuthenticationFilter)가 사용 중에는 계속 연장해주므로,

@@ -18,19 +18,26 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
 public class SecurityConfig {
 
     private final String allowedOrigin;
+    private final List<String> appOriginPatterns;
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
 
     public SecurityConfig(@Value("${app.cors.allowed-origin}") String allowedOrigin,
+                           @Value("${app.cors.app-origin-patterns:}") String appOriginPatterns,
                            JwtService jwtService,
                            CustomUserDetailsService userDetailsService) {
         this.allowedOrigin = allowedOrigin;
+        this.appOriginPatterns = Arrays.stream(appOriginPatterns.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toList();
         this.jwtService = jwtService;
         this.userDetailsService = userDetailsService;
     }
@@ -77,6 +84,13 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(allowedOrigin));
+        // 웹이 아닌 앱 오리진. Even G2 설치형 앱(.ehpk)은 Even 앱 WebView 안에서
+        // http://127.0.0.1:<실행마다 바뀌는 포트> 로 열리므로 포트를 패턴([*])으로 허용합니다.
+        // 인증은 쿠키가 아니라 Authorization 헤더의 JWT라서, 다른 로컬 페이지가 이 오리진으로
+        // 호출해도 사용자 토큰 없이는 아무것도 할 수 없습니다.
+        if (!appOriginPatterns.isEmpty()) {
+            config.setAllowedOriginPatterns(appOriginPatterns);
+        }
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         // 브라우저는 기본적으로 소수의 응답 헤더만 JS에 노출합니다. 갱신 토큰 헤더를
