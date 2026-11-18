@@ -17,6 +17,8 @@ import java.util.List;
  *
  *  - POST /api/ai/ask           : 바로 답(짧은 질문용, 100초 넘으면 Cloudflare가 끊음)
  *  - POST /api/ai/jobs          : 백그라운드로 시작 → GET /api/ai/jobs/{id} 로 진행 상황·답 확인
+ *  - GET  /api/ai/jobs/latest   : 어느 화면에서 물었든 가장 최근 질문 (안경 앱이 따라감)
+ *  - POST /api/ai/conversation/reset : 새 대화 (모든 화면 공통)
  *  - /api/ai/projects           : Claude가 읽을 프로젝트(GitHub 클론, zip 업로드) 관리
  */
 @RestController
@@ -47,7 +49,10 @@ public class AiController {
         return new StatusResponse(ai.isEnabledFor(currentUser.require().getEmail()));
     }
 
-    /** project: 읽게 할 프로젝트 이름(없으면 일반 질문). */
+    /**
+     * project: 읽게 할 프로젝트 이름(없으면 일반 질문).
+     * history: 예전 앱(0.1.5)만 보냅니다. 새 앱은 비워 두고, 대화는 서버가 사용자별로 이어 갑니다.
+     */
     public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images, String project) {}
     /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null), steps: 할 일로 저장할 작업 단계. */
     public record AskResponse(String answer, String detail, List<String> steps) {}
@@ -69,8 +74,20 @@ public class AiController {
         AiService.ProjectRef project = projectRef(req.project());
         Long id = user.getId();
         String email = user.getEmail();
-        return new JobStarted(jobs.start(id, progress ->
-                ai.ask(id, email, q, req.history(), req.images(), project, progress)));
+        int imageCount = req.images() == null ? 0 : req.images().size();
+        return new JobStarted(jobs.start(id, q, req.project(), imageCount, req.history(), (history, progress) ->
+                ai.ask(id, email, q, history, req.images(), project, progress)));
+    }
+
+    /** 가장 최근 질문. 없으면 빈 응답(null). */
+    @GetMapping("/jobs/latest")
+    public AiJobService.JobView latestJob() {
+        return jobs.latest(requireAllowed().getId());
+    }
+
+    @PostMapping("/conversation/reset")
+    public void resetConversation() {
+        jobs.reset(requireAllowed().getId());
     }
 
     @GetMapping("/jobs/{id}")
