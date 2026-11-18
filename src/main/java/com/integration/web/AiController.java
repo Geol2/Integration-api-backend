@@ -23,16 +23,23 @@ public class AiController {
         this.currentUser = currentUser;
     }
 
-    public record AskRequest(String question, List<AiService.Turn> history) {}
-    public record AskResponse(String answer) {}
+    public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images) {}
+    /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null). */
+    public record AskResponse(String answer, String detail) {}
+
+    private static final String PHOTO_DEFAULT_QUESTION =
+            "사진 속 요구사항과 코드를 보고, 요구사항대로 동작하려면 어디를 어떻게 수정해야 하는지 알려줘.";
 
     @PostMapping("/ask")
     public AskResponse ask(@RequestBody AskRequest req) {
         String q = req.question() == null ? "" : req.question().strip();
+        boolean hasImages = req.images() != null && !req.images().isEmpty();
+        if (q.isEmpty() && hasImages) q = PHOTO_DEFAULT_QUESTION;
         if (q.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "질문을 입력하세요.");
         if (q.length() > MAX_QUESTION_CHARS) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "질문이 너무 길어요(최대 " + MAX_QUESTION_CHARS + "자).");
         }
-        return new AskResponse(ai.ask(currentUser.requireId(), q, req.history()));
+        AiService.Answer a = ai.ask(currentUser.requireId(), q, req.history(), req.images());
+        return new AskResponse(a.summary(), a.detail());
     }
 }

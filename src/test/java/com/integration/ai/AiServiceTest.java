@@ -34,4 +34,15 @@ class AiServiceTest {
         assertThat(out.get(0)).isEqualTo(new Turn("user", "q3"));
         assertThat(out.get(out.size() - 1)).isEqualTo(new Turn("assistant", "a7"));
     }
+
+    @Test
+    void splitSeparatesGlassesSummaryFromPhoneDetail() {
+        AiService.Answer a = AiService.split("OrderService.save()에 검증 추가\n@@상세@@\nif (qty <= 0) throw ...");
+        assertThat(a.summary()).isEqualTo("OrderService.save()에 검증 추가");
+        assertThat(a.detail()).isEqualTo("if (qty <= 0) throw ...");
+        assertThat(a.full()).contains(AiService.DETAIL_MARK);
+
+        assertThat(AiService.split("짧은 답").detail()).isNull();
+        assertThat(AiService.split("@@상세@@\n전체").summary()).isEqualTo("전체 답은 폰 화면에서 보세요.");
+    }
 }
