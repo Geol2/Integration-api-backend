@@ -123,4 +123,27 @@ class ProjectToolsTest {
         assertThatThrownBy(() -> store.addGit("https://evil.com/a/b", null)).hasMessageContaining("github.com");
         assertThatThrownBy(() -> store.addGit("https://github.com/a/b; rm -rf /", null)).hasMessageContaining("github.com");
     }
+
+    @Test
+    void githubTokenGoesToGitOnlyThroughEnvironment() throws Exception {
+        assertThat(ProjectStore.gitAuthEnv("")).isEmpty();
+        var env = ProjectStore.gitAuthEnv("ghp_secret");
+        assertThat(env).containsEntry("GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader");
+        // 실제 git이 이 환경 변수를 설정으로 읽는지 확인(토큰은 명령줄에 없음)
+        ProcessBuilder pb = new ProcessBuilder("git", "config", "--get", "http.https://github.com/.extraheader")
+                .redirectErrorStream(true);
+        pb.environment().putAll(env);
+        Process proc = pb.start();
+        String out = new String(proc.getInputStream().readAllBytes()).strip();
+        assertThat(proc.waitFor()).isZero();
+        String basic = java.util.Base64.getEncoder().encodeToString("x-access-token:ghp_secret".getBytes());
+        assertThat(out).isEqualTo("AUTHORIZATION: basic " + basic);
+
+        // 오류 문구: 토큰이 없으면 설정하라고, 있으면 권한을 확인하라고 안내
+        assertThat(new ProjectStore(tmp.resolve("a").toString(), "").friendlyGitError("fatal: could not read Username for 'https://github.com'"))
+                .contains("AI_GITHUB_TOKEN");
+        assertThat(new ProjectStore(tmp.resolve("b").toString(), "t").friendlyGitError("remote: Repository not found."))
+                .contains("권한이 없어요");
+        assertThat(new ProjectStore(tmp.resolve("c").toString(), "t").privateReposEnabled()).isTrue();
+    }
 }

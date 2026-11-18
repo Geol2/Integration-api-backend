@@ -55,6 +55,11 @@ public class ProjectStore {
     public record Project(String name, Source source, String url, Status status, String message, Instant updatedAt) {}
 
     private final Path root;
+    /**
+     * 비공개 GitHub 저장소용 읽기 전용 토큰(fine-grained PAT, Contents: Read-only). 비우면 공개 저장소만.
+     * 명령줄 인자나 .git/config에 남기지 않고, git 실행 때 환경 변수로만 넘깁니다(ps·로그에 안 보임).
+     */
+    private final String githubToken;
     private final Map<String, Project> projects = new ConcurrentHashMap<>();
     private final ExecutorService gitWorker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "ai-project-git");
@@ -63,6 +68,13 @@ public class ProjectStore {
     });
 
     public ProjectStore(@Value("${app.ai.workspace-root:}") String rootDir) {
+        this(rootDir, "");
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProjectStore(@Value("${app.ai.workspace-root:}") String rootDir,
+                        @Value("${app.ai.github-token:}") String githubToken) {
+        this.githubToken = githubToken == null ? "" : githubToken.strip();
         String dir = rootDir == null || rootDir.isBlank()
                 ? Path.of(System.getProperty("user.home"), ".momentum-ai", "projects").toString()
                 : rootDir;
@@ -70,10 +82,16 @@ public class ProjectStore {
         try {
             Files.createDirectories(root);
             loadMeta();
-            log.info("AI 프로젝트 폴더: {} ({}개)", root, projects.size());
+            log.info("AI 프로젝트 폴더: {} ({}개), 비공개 GitHub: {}", root, projects.size(),
+                    this.githubToken.isEmpty() ? "꺼짐(AI_GITHUB_TOKEN 없음)" : "켜짐");
         } catch (IOException e) {
             log.warn("AI 프로젝트 폴더를 만들 수 없습니다: {} ({})", root, e.getMessage());
         }
+    }
+
+    /** 비공개 저장소를 받을 수 있는지(토큰 설정 여부). 앱이 안내 문구를 고르는 데 씁니다. */
+    public boolean privateReposEnabled() {
+        return !githubToken.isEmpty();
     }
 
     public List<Project> list() {
@@ -121,27 +139,55 @@ public class ProjectStore {
         Path dir = root.resolve(p.name());
         try {
             if (Files.isDirectory(dir.resolve(".git"))) {
-                git(dir, "fetch", "--depth", "1", "origin", "HEAD");
-                git(dir, "reset", "--hard", "FETCH_HEAD");
+                git(dir, githubToken, "fetch", "--depth", "1", "origin", "HEAD");
+                git(dir, githubToken, "reset", "--hard", "FETCH_HEAD");
             } else {
                 deleteTree(dir);
-                git(root, "clone", "--depth", "1", "--", p.url(), p.name());
+                git(root, githubToken, "clone", "--depth", "1", "--", p.url(), p.name());
             }
-            String head = git(dir, "log", "-1", "--format=%h %s").strip();
+            String head = git(dir, "", "log", "-1", "--format=%h %s").strip();
             put(new Project(p.name(), Source.git, p.url(), Status.ready, head, Instant.now()));
         } catch (Exception e) {
             log.warn("git 동기화 실패 {}: {}", p.name(), e.getMessage());
-            put(new Project(p.name(), Source.git, p.url(), Status.error, e.getMessage(), Instant.now()));
+            put(new Project(p.name(), Source.git, p.url(), Status.error, friendlyGitError(e.getMessage()), Instant.now()));
         }
     }
 
-    private static String git(Path cwd, String... args) throws IOException, InterruptedException {
+    /** 비공개 저장소·없는 저장소일 때 git이 내는 영어 오류를 알아듣기 쉽게 바꿉니다. */
+    String friendlyGitError(String msg) {
+        String m = msg == null ? "" : msg;
+        if (m.contains("could not read Username") || m.contains("Authentication failed")
+                || m.contains("Repository not found") || m.contains("403")) {
+            return githubToken.isEmpty()
+                    ? "비공개 저장소이거나 주소가 틀렸어요. 비공개라면 서버에 AI_GITHUB_TOKEN을 설정하세요."
+                    : "저장소를 받을 권한이 없어요. 토큰에 이 저장소(Contents: Read)가 포함됐는지, 주소가 맞는지 확인하세요.";
+        }
+        return m;
+    }
+
+    /**
+     * 토큰을 git 설정(http.extraheader)으로 넘기되 GIT_CONFIG_COUNT 환경 변수를 씁니다(git 2.31+).
+     * 명령줄 인자로 넘기면 ps로 보이고, 저장소 주소에 넣으면 .git/config에 남기 때문입니다.
+     * github.com 주소에만 붙도록 키를 http.https://github.com/.extraheader 로 한정합니다.
+     */
+    static Map<String, String> gitAuthEnv(String token) {
+        if (token == null || token.isBlank()) return Map.of();
+        String basic = java.util.Base64.getEncoder()
+                .encodeToString(("x-access-token:" + token.strip()).getBytes(StandardCharsets.UTF_8));
+        return Map.of(
+                "GIT_CONFIG_COUNT", "1",
+                "GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0", "AUTHORIZATION: basic " + basic);
+    }
+
+    private static String git(Path cwd, String token, String... args) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         cmd.add("git");
         cmd.addAll(List.of(args));
         ProcessBuilder pb = new ProcessBuilder(cmd).directory(cwd.toFile()).redirectErrorStream(true);
-        // 비밀번호를 묻는 대화창이 뜨면 영원히 멈추므로 끕니다(공개 저장소만 지원).
+        // 비밀번호를 묻는 대화창이 뜨면 영원히 멈추므로 끕니다.
         pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+        pb.environment().putAll(gitAuthEnv(token));
         Process proc = pb.start();
         byte[] out = proc.getInputStream().readAllBytes();
         if (!proc.waitFor(5, TimeUnit.MINUTES)) {

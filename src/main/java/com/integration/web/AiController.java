@@ -120,6 +120,15 @@ public class AiController {
         return projects.list();
     }
 
+    /** privateRepos: 서버에 GitHub 토큰이 있어 비공개 저장소도 받을 수 있는지. */
+    public record ProjectSettings(boolean privateRepos) {}
+
+    @GetMapping("/projects/settings")
+    public ProjectSettings projectSettings() {
+        requireAllowed();
+        return new ProjectSettings(projects.privateReposEnabled());
+    }
+
     @PostMapping("/projects/git")
     public ProjectStore.Project addGit(@RequestBody AddGitRequest req) {
         requireAllowed();
