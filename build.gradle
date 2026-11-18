@@ -37,6 +37,9 @@ dependencies {
 	implementation 'nl.martijndwars:web-push:5.1.1'
 	implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
 
+	// Claude API — G2 안경의 "Claude에게 묻기" (/api/ai/ask). API 키는 서버에만 둡니다.
+	implementation 'com.anthropic:anthropic-java:3.10.0'
+
 	// PostgreSQL — used for both dev (localhost:5433) and prod
 	runtimeOnly 'org.postgresql:postgresql'
 
