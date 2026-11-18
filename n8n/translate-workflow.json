@@ -1,0 +1,86 @@
+{
+  "name": "논문 번역 (모멘텀)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "translate",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-translate",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-220, 0],
+      "notes": "Header Auth 자격증명의 헤더 이름은 X-Translate-Key, 값은 백엔드의 N8N_TRANSLATE_KEY와 같아야 합니다. Respond는 반드시 'Respond to Webhook 노드 사용'."
+    },
+    {
+      "parameters": {
+        "jsCode": "// 백엔드가 보낸 문단들을 Anthropic Messages API 요청 본문으로 만듭니다.\n// 문단을 하나씩 보내지 않고 한 번에 넘기는 이유: 앞뒤 문맥이 있어야 용어가\n// 일관되게 번역되고, 요청 수도 줄어듭니다.\nconst body = $json.body ?? $json;\nconst texts = body.texts ?? [];\nconst source = body.source && body.source !== 'auto' ? body.source : '원문';\nconst target = body.target || 'ko';\n\nif (!Array.isArray(texts) || texts.length === 0) {\n  throw new Error('texts가 비어 있습니다');\n}\n\nconst system = [\n  '당신은 학술 논문 번역가입니다. 주어진 문단들을 ' + target + '로 번역하세요.',\n  '',\n  '규칙:',\n  '- 입력 문단 하나당 번역문 하나. 개수와 순서를 절대 바꾸지 마세요.',\n  '- 문단을 합치거나 나누지 마세요. 요약하지 말고 전부 번역하세요.',\n  '- 전문용어는 문서 전체에서 같은 번역어를 쓰세요. 처음 나올 때만 원어를 괄호로 병기합니다.',\n  '- 수식, 변수명, 인용 표시([12] 등), 그림·표 번호는 원문 그대로 두세요.',\n  '- 제목이나 절 제목처럼 짧은 문단도 그대로 번역해 같은 자리에 두세요.',\n  '- 번역할 내용이 없는 문단(숫자·기호뿐)은 원문을 그대로 돌려주세요.',\n  '- 설명이나 주석을 덧붙이지 말고 번역문만 담으세요.',\n  '- 응답에 내부용 XML 태그를 포함하지 마세요.',\n].join('\\n');\n\nconst userText = texts\n  .map((t, i) => '[' + i + '] ' + t)\n  .join('\\n\\n');\n\nreturn [{\n  json: {\n    model: 'claude-opus-5',\n    max_tokens: 16000,\n    // 번역은 추론이 필요한 작업이 아니라 지연과 비용만 늘립니다. Opus 5는 thinking이\n    // 기본 on이라 명시적으로 끕니다(effort high 이하에서만 허용).\n    thinking: { type: 'disabled' },\n    system,\n    output_config: {\n      effort: 'low',\n      // 구조화 출력 — 모델이 스키마를 벗어난 응답을 내놓을 수 없게 합니다.\n      // 프롬프트로 \"JSON만 답하라\"고 부탁하고 파싱 실패를 재시도하는 것보다 확실합니다.\n      format: {\n        type: 'json_schema',\n        schema: {\n          type: 'object',\n          properties: {\n            translations: {\n              type: 'array',\n              description: '입력 문단과 같은 개수·순서의 번역문',\n              items: { type: 'string' },\n            },\n          },\n          required: ['translations'],\n          additionalProperties: false,\n        },\n      },\n    },\n    messages: [{\n      role: 'user',\n      content: '다음 ' + texts.length + '개 문단(' + source + ')을 번역하세요. 번호는 순서 확인용이니 번역문에는 넣지 마세요.\\n\\n' + userText,\n    }],\n  },\n}];"
+      },
+      "id": "build-request",
+      "name": "번역 요청 만들기",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 80000
+        }
+      },
+      "id": "call-anthropic",
+      "name": "Claude 번역",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "notes": "Header Auth 자격증명을 하나 더 만들어 이름 x-api-key, 값은 Anthropic API 키. 키를 이 JSON에 직접 넣지 마세요."
+    },
+    {
+      "parameters": {
+        "jsCode": "// 구조화 출력이라 content[0].text는 스키마를 지킨 JSON 문자열입니다.\n// 그래도 모델이 거부(refusal)했거나 max_tokens에 걸렸을 수 있어 확인합니다.\nconst res = $json;\n\nif (res.stop_reason === 'refusal') {\n  throw new Error('모델이 번역을 거부했습니다 (' + (res.stop_details?.category ?? 'unknown') + ')');\n}\n\nconst block = (res.content ?? []).find((b) => b.type === 'text');\nif (!block) {\n  throw new Error('응답에 텍스트가 없습니다 (stop_reason=' + res.stop_reason + ')');\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(block.text);\n} catch (e) {\n  // max_tokens에 걸려 JSON이 잘리면 여기로 옵니다 — 문단 수를 줄여야 한다는 신호.\n  throw new Error('번역 결과를 읽지 못했습니다 (stop_reason=' + res.stop_reason + ')');\n}\n\nconst translations = parsed.translations;\nif (!Array.isArray(translations)) {\n  throw new Error('translations 배열이 없습니다');\n}\n\nreturn [{ json: { translations } }];"
+      },
+      "id": "parse-response",
+      "name": "응답 파싱",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "응답 반환",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "번역 요청 만들기", "type": "main", "index": 0 }]] },
+    "번역 요청 만들기": { "main": [[{ "node": "Claude 번역", "type": "main", "index": 0 }]] },
+    "Claude 번역": { "main": [[{ "node": "응답 파싱", "type": "main", "index": 0 }]] },
+    "응답 파싱": { "main": [[{ "node": "응답 반환", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

@@ -89,6 +89,19 @@ app:
     webhook-url: ${N8N_RECORDING_WEBHOOK_URL:}
     webhook-key: ${N8N_RECORDING_KEY:}
 
+  # ---- 논문 PDF 번역 → n8n → LLM ----
+  # 녹음과 달리 여기서는 n8n의 응답(번역문)을 기다립니다. n8n Webhook 노드는
+  # "Respond to Webhook 노드 사용"이어야 하고, Immediately면 빈 응답만 돌아옵니다.
+  # 비워두면 /api/translate가 503으로 응답할 뿐 API는 정상 기동합니다.
+  # (프론트는 VITE_TRANSLATE_SERVER=1 일 때만 이 경로를 씁니다.)
+  translate:
+    webhook-url: ${N8N_TRANSLATE_WEBHOOK_URL:}
+    webhook-key: ${N8N_TRANSLATE_KEY:}
+    # Cloudflare Tunnel(~100초) 아래로. 이 시간을 넘기면 사용자 쪽은 이미 끊긴 뒤입니다.
+    timeout-seconds: ${TRANSLATE_TIMEOUT_SECONDS:85}
+    # 한 요청에 담을 수 있는 원문 길이. 프론트는 3500자씩 나눠 보냅니다.
+    max-chars: ${TRANSLATE_MAX_CHARS:20000}
+
   # ---- 서버-대-서버 내부 호출 키 (n8n → /internal/push) ----
   # n8n이 회의록 저장 성공/실패를 알려올 때 쓰는 공유 비밀. 비워두면 /internal/push가
   # 전부 403이라(fail-closed) 실수로 열리지 않습니다. n8n Header Auth 값과 같아야 합니다.
