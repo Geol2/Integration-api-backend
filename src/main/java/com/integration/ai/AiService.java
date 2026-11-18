@@ -54,6 +54,11 @@ public class AiService {
     private static final int MAX_IMAGE_BYTES = 4_500_000;
     /** 답변 중 "안경용 요약"과 "폰용 전체 답"을 나누는 표시. */
     static final String DETAIL_MARK = "@@상세@@";
+    /** 답변 끝의 "작업 단계" 목록 표시. 이 목록을 할 일로 저장합니다. */
+    static final String STEPS_MARK = "@@할일@@";
+    static final int MAX_STEPS = 8;
+    /** todo.text 컬럼(varchar 255)과 안경 한 줄 폭을 고려한 단계 한 줄 상한. */
+    static final int MAX_STEP_CHARS = 80;
 
     /** 프로젝트 설명 파일 상한. 이보다 크면 잘라서 넣고 경고를 남깁니다. */
     private static final int MAX_CONTEXT_CHARS = 400_000;
@@ -83,6 +88,12 @@ public class AiService {
                전체 답에는 바꿀 코드를 빠짐없이 쓴다(수정 전/후, 또는 바뀐 메서드 전체).
                이 부분은 길어도 되고 800자 제한이 없다. 마크다운 금지는 그대로다.
             짧은 질문이면 @@상세@@ 없이 요약만 쓴다.
+
+            코드 수정이나 작업이 필요한 답이면 맨 끝에 작업 단계를 붙인다(사용자가 할 일 목록으로 저장한다):
+            @@할일@@ 한 줄만 쓰고, 그 아래에 실제로 손댈 순서대로 한 줄에 하나씩 "- "로 시작해 쓴다.
+            - 최대 8개, 한 줄 40자 안쪽, 파일/메서드 이름을 넣는다. 예: - OrderService.save()에 수량 검증 추가
+            - 테스트 작성이 필요하면 마지막 단계로 넣는다.
+            단순 설명 질문이면 @@할일@@을 쓰지 않는다.
             """;
 
     private final AnthropicClient client;   // 키가 없으면 null — 기능 꺼짐
@@ -103,9 +114,15 @@ public class AiService {
     public record Image(String mediaType, String data) {}
 
     /** summary: 안경에 띄울 짧은 답. detail: 폰에 띄울 전체 답(없으면 null). */
-    public record Answer(String summary, String detail) {
+    public record Answer(String summary, String detail, List<String> steps) {
+        Answer(String summary, String detail) { this(summary, detail, List.of()); }
+
         /** 이어서 묻기용으로 대화 기록에 남길 원문. */
-        public String full() { return detail == null ? summary : summary + "\n" + DETAIL_MARK + "\n" + detail; }
+        public String full() {
+            String s = detail == null ? summary : summary + "\n" + DETAIL_MARK + "\n" + detail;
+            if (!steps.isEmpty()) s += "\n" + STEPS_MARK + "\n- " + String.join("\n- ", steps);
+            return s;
+        }
     }
 
     public AiService(
@@ -207,14 +224,31 @@ public class AiService {
         return split(answer);
     }
 
-    /** "요약 @@상세@@ 전체" 형식을 나눕니다. 표시가 없으면 전부 요약입니다. */
+    /** "요약 @@상세@@ 전체 @@할일@@ 단계" 형식을 나눕니다. 표시가 없으면 전부 요약입니다. */
     static Answer split(String answer) {
+        List<String> steps = List.of();
+        int s = answer.lastIndexOf(STEPS_MARK);
+        if (s >= 0) {
+            steps = parseSteps(answer.substring(s + STEPS_MARK.length()));
+            answer = answer.substring(0, s).strip();
+        }
         int i = answer.indexOf(DETAIL_MARK);
-        if (i < 0) return new Answer(answer, null);
+        if (i < 0) return new Answer(answer.isEmpty() ? "작업 단계를 할 일로 저장할 수 있어요." : answer, null, steps);
         String summary = answer.substring(0, i).strip();
         String detail = answer.substring(i + DETAIL_MARK.length()).strip();
         if (summary.isEmpty()) summary = "전체 답은 폰 화면에서 보세요.";
-        return new Answer(summary, detail.isEmpty() ? null : detail);
+        return new Answer(summary, detail.isEmpty() ? null : detail, steps);
+    }
+
+    static List<String> parseSteps(String block) {
+        return block.lines()
+                .map(String::strip)
+                // "- ", "1. ", "1) " 같은 머리표를 떼어 냅니다.
+                .map(l -> l.replaceFirst("^(?:[-*]|\\d+[.)])\\s*", "").strip())
+                .filter(l -> !l.isEmpty())
+                .map(l -> l.length() > MAX_STEP_CHARS ? l.substring(0, MAX_STEP_CHARS - 3) + "..." : l)
+                .limit(MAX_STEPS)
+                .toList();
     }
 
     private static List<BetaContentBlockParam> toImageBlocks(List<Image> images) {

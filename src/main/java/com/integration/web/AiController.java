@@ -24,8 +24,8 @@ public class AiController {
     }
 
     public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images) {}
-    /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null). */
-    public record AskResponse(String answer, String detail) {}
+    /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null), steps: 할 일로 저장할 작업 단계. */
+    public record AskResponse(String answer, String detail, List<String> steps) {}
 
     private static final String PHOTO_DEFAULT_QUESTION =
             "사진 속 요구사항과 코드를 보고, 요구사항대로 동작하려면 어디를 어떻게 수정해야 하는지 알려줘.";
@@ -40,6 +40,6 @@ public class AiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "질문이 너무 길어요(최대 " + MAX_QUESTION_CHARS + "자).");
         }
         AiService.Answer a = ai.ask(currentUser.requireId(), q, req.history(), req.images());
-        return new AskResponse(a.summary(), a.detail());
+        return new AskResponse(a.summary(), a.detail(), a.steps());
     }
 }

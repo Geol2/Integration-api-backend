@@ -45,4 +45,22 @@ class AiServiceTest {
         assertThat(AiService.split("짧은 답").detail()).isNull();
         assertThat(AiService.split("@@상세@@\n전체").summary()).isEqualTo("전체 답은 폰 화면에서 보세요.");
     }
+
+    @Test
+    void splitExtractsTodoSteps() {
+        String raw = "save()에 검증 추가\n@@상세@@\n코드...\n@@할일@@\n- OrderService.save() 검증\n2. 예외 메시지 정의\n3) 테스트 추가\n\n";
+        AiService.Answer a = AiService.split(raw);
+        assertThat(a.summary()).isEqualTo("save()에 검증 추가");
+        assertThat(a.detail()).isEqualTo("코드...");
+        assertThat(a.steps()).containsExactly("OrderService.save() 검증", "예외 메시지 정의", "테스트 추가");
+        assertThat(AiService.split(a.full()).steps()).isEqualTo(a.steps());
+    }
+
+    @Test
+    void parseStepsCapsCountAndLength() {
+        String many = "- a\n".repeat(20) + "- " + "x".repeat(200);
+        assertThat(AiService.parseSteps(many)).hasSize(AiService.MAX_STEPS);
+        assertThat(AiService.parseSteps("- " + "x".repeat(200)).get(0)).hasSize(AiService.MAX_STEP_CHARS).endsWith("...");
+        assertThat(AiService.split("짧은 답").steps()).isEmpty();
+    }
 }
