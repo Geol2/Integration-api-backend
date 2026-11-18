@@ -118,6 +118,15 @@ public class AiService {
             - 이 도구로는 읽기만 된다. 수정은 사용자가 직접 하므로, 바꿀 코드를 @@상세@@ 아래에 정확히 쓴다.
             """;
 
+    /** 프로젝트를 고르지 않고 물을 때. "zip 올렸는데 왜 못 읽어?" 같은 혼동을 안내로 풉니다. */
+    private static final String NO_PROJECT_RULES = """
+
+            지금은 프로젝트가 선택되지 않아 서버에 올린 코드(GitHub 저장소·zip)를 읽을 수 없다.
+            사용자가 코드·zip·프로젝트 파일을 보고 답해 달라고 하면, 추측해서 답하지 말고 이렇게 안내한다:
+            "폰이나 PC 화면의 '프로젝트' 목록에서 그 프로젝트를 고른 뒤 다시 물어봐 주세요.
+             아직 안 올렸다면 '관리'에서 zip 업로드나 GitHub 추가를 먼저 해 주세요."
+            """;
+
     private static final List<BetaTool> PROJECT_TOOLS = List.of(
             tool("list_files", "프로젝트 폴더 구조를 본다. 폴더는 끝에 / 가 붙는다. node_modules·build 같은 폴더는 빠진다.",
                     Map.of("path", Map.of("type", "string", "description", "프로젝트 루트 기준 폴더 경로. 루트는 ."),
@@ -269,7 +278,9 @@ public class AiService {
                 .cacheControl(BetaCacheControlEphemeral.builder().build())
                 .build());
         ProjectTools tools = null;
-        if (project != null) {
+        if (project == null) {
+            system.add(BetaTextBlockParam.builder().text(NO_PROJECT_RULES).build());
+        } else {
             system.add(BetaTextBlockParam.builder().text(PROJECT_RULES.formatted(project.name())).build());
             try {
                 tools = new ProjectTools(project.dir());

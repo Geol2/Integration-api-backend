@@ -76,6 +76,7 @@ class AiAgentLoopTest {
 
         assertThat(requests).hasSize(3);
         // 첫 요청: 도구 3개와 프로젝트 안내가 들어갑니다.
+        assertThat(requests.get(0)).doesNotContain("프로젝트가 선택되지 않아");
         assertThat(requests.get(0)).contains("\"list_files\"", "\"read_file\"", "\"search\"", "프로젝트 \\\"proj\\\"");
         // 두 번째 요청: 앞 답(tool_use)과 두 도구 결과가 같은 user 메시지로 갑니다.
         assertThat(requests.get(1)).contains("\"tool_use_id\":\"tu_1\"", "\"tool_use_id\":\"tu_2\"",
@@ -91,5 +92,7 @@ class AiAgentLoopTest {
         AiService.Answer a = ai.ask(1L, "me@x.com", "WHERE vs HAVING", List.of(), List.of());
         assertThat(a.summary()).contains("HAVING");
         assertThat(requests.get(0)).doesNotContain("\"tools\"");
+        // 프로젝트 없이 물으면 '프로젝트를 고르라'는 안내 규칙이 들어갑니다.
+        assertThat(requests.get(0)).contains("프로젝트가 선택되지 않아");
     }
 }
