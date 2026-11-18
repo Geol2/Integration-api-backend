@@ -63,4 +63,20 @@ class AiServiceTest {
         assertThat(AiService.parseSteps("- " + "x".repeat(200)).get(0)).hasSize(AiService.MAX_STEP_CHARS).endsWith("...");
         assertThat(AiService.split("짧은 답").steps()).isEmpty();
     }
+
+    @Test
+    void onlyAllowedEmailsCanUseClaude() {
+        AiService ai = new AiService("test-key", "claude-opus-5-5", "medium", "", 100, 300, " Me@Example.com , ", "Asia/Seoul");
+        assertThat(ai.isEnabledFor("me@example.com")).isTrue();
+        assertThat(ai.isEnabledFor("ME@EXAMPLE.COM")).isTrue();
+        assertThat(ai.isEnabledFor("stranger@example.com")).isFalse();
+        assertThat(ai.isEnabledFor(null)).isFalse();
+
+        // 허용 목록을 비우면 아무도 못 씁니다(fail-closed).
+        AiService closed = new AiService("test-key", "claude-opus-5-5", "medium", "", 100, 300, "", "Asia/Seoul");
+        assertThat(closed.isEnabledFor("me@example.com")).isFalse();
+        // 키가 없으면 허용 목록에 있어도 꺼짐.
+        AiService noKey = new AiService("", "claude-opus-5-5", "medium", "", 100, 300, "me@example.com", "Asia/Seoul");
+        assertThat(noKey.isEnabledFor("me@example.com")).isFalse();
+    }
 }

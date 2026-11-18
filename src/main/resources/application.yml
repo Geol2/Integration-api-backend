@@ -113,6 +113,10 @@ app:
     # 넣고 캐시합니다 — "내 프로젝트를 아는 Claude". 없으면 일반 질문만 답합니다.
     context-file: ${AI_CONTEXT_FILE:}
     daily-limit: ${AI_DAILY_LIMIT:100}        # 사용자당 하루 질문 수 (비용 안전장치)
+    # 앱은 스토어에 공개되지만 Claude 비용은 키 주인이 냅니다. 여기 적은 이메일만 쓸 수 있고,
+    # 비워두면 아무도 못 씁니다(fail-closed). 쉼표로 구분: a@x.com,b@y.com
+    allowed-emails: ${AI_ALLOWED_EMAILS:}
+    global-daily-limit: ${AI_GLOBAL_DAILY_LIMIT:300}  # 서버 전체 하루 질문 수 상한
 
   # ---- 서버-대-서버 내부 호출 키 (n8n → /internal/push) ----
   # n8n이 회의록 저장 성공/실패를 알려올 때 쓰는 공유 비밀. 비워두면 /internal/push가

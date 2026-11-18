@@ -31,8 +31,12 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -101,7 +105,11 @@ public class AiService {
     private final BetaOutputConfig.Effort effort;
     private final String systemPrompt;
     private final int dailyLimit;
+    private final int globalDailyLimit;
+    private final Set<String> allowedEmails;
     private final ZoneId zone;
+    /** 서버 전체 오늘 사용 횟수 (모든 사용자 합). */
+    private final AtomicReference<DailyCount> globalUsage = new AtomicReference<>(new DailyCount(LocalDate.MIN, 0));
 
     /** userId → 오늘 사용 횟수. 서버 한 대 기준의 간단한 비용 안전장치입니다. */
     private final Map<Long, DailyCount> usage = new ConcurrentHashMap<>();
@@ -131,6 +139,8 @@ public class AiService {
             @Value("${app.ai.effort:medium}") String effort,
             @Value("${app.ai.context-file:}") String contextFile,
             @Value("${app.ai.daily-limit:100}") int dailyLimit,
+            @Value("${app.ai.global-daily-limit:300}") int globalDailyLimit,
+            @Value("${app.ai.allowed-emails:}") String allowedEmails,
             @Value("${app.push.zone:Asia/Seoul}") String zone) {
         this.client = apiKey.isBlank() ? null : AnthropicOkHttpClient.builder()
                 .apiKey(apiKey)
@@ -140,9 +150,25 @@ public class AiService {
         this.model = model;
         this.effort = BetaOutputConfig.Effort.of(effort);
         this.dailyLimit = dailyLimit;
+        this.globalDailyLimit = globalDailyLimit;
+        this.allowedEmails = parseEmails(allowedEmails);
         this.zone = ZoneId.of(zone);
         this.systemPrompt = RULES + loadContext(contextFile);
         if (client == null) log.info("ANTHROPIC_API_KEY 미설정 — /api/ai/ask 비활성화");
+        else if (this.allowedEmails.isEmpty()) log.warn("AI_ALLOWED_EMAILS 미설정 — 키는 있지만 아무도 /api/ai/ask 를 쓸 수 없습니다");
+    }
+
+    static Set<String> parseEmails(String csv) {
+        if (csv == null || csv.isBlank()) return Set.of();
+        return Arrays.stream(csv.split(","))
+                .map(e -> e.strip().toLowerCase(Locale.ROOT))
+                .filter(e -> !e.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 이 사용자가 Claude 기능을 쓸 수 있는지 (키가 있고, 허용 목록에 있음). 앱이 메뉴를 숨기는 데 씁니다. */
+    public boolean isEnabledFor(String email) {
+        return client != null && email != null && allowedEmails.contains(email.strip().toLowerCase(Locale.ROOT));
     }
 
     private static String loadContext(String contextFile) {
@@ -163,9 +189,13 @@ public class AiService {
         }
     }
 
-    public Answer ask(Long userId, String question, List<Turn> history, List<Image> images) {
+    public Answer ask(Long userId, String email, String question, List<Turn> history, List<Image> images) {
         if (client == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
+        }
+        if (!isEnabledFor(email)) {
+            // 스토어에서 받은 다른 사용자가 키 주인의 비용으로 쓰지 못하게 막습니다.
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 계정은 Claude 기능을 쓸 수 없어요.");
         }
         List<BetaContentBlockParam> imageBlocks = toImageBlocks(images);
         takeQuota(userId);
@@ -304,6 +334,11 @@ public class AiService {
 
     private void takeQuota(Long userId) {
         LocalDate today = LocalDate.now(zone);
+        DailyCount global = globalUsage.updateAndGet(c ->
+                c.day().equals(today) ? new DailyCount(today, c.count() + 1) : new DailyCount(today, 1));
+        if (global.count() > globalDailyLimit) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "오늘 Claude 사용량을 다 썼어요. 내일 다시 써 주세요.");
+        }
         DailyCount next = usage.compute(userId, (id, c) ->
                 c == null || !c.day().equals(today) ? new DailyCount(today, 1) : new DailyCount(today, c.count() + 1));
         if (next.count() > dailyLimit) {

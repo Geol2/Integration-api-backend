@@ -23,6 +23,14 @@ public class AiController {
         this.currentUser = currentUser;
     }
 
+    public record StatusResponse(boolean enabled) {}
+
+    /** 앱이 "Claude에게 묻기" 메뉴를 보여줄지 정합니다. 허용된 계정이 아니면 메뉴 자체가 숨겨집니다. */
+    @GetMapping("/status")
+    public StatusResponse status() {
+        return new StatusResponse(ai.isEnabledFor(currentUser.require().getEmail()));
+    }
+
     public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images) {}
     /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null), steps: 할 일로 저장할 작업 단계. */
     public record AskResponse(String answer, String detail, List<String> steps) {}
@@ -39,7 +47,8 @@ public class AiController {
         if (q.length() > MAX_QUESTION_CHARS) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "질문이 너무 길어요(최대 " + MAX_QUESTION_CHARS + "자).");
         }
-        AiService.Answer a = ai.ask(currentUser.requireId(), q, req.history(), req.images());
+        var user = currentUser.require();
+        AiService.Answer a = ai.ask(user.getId(), user.getEmail(), q, req.history(), req.images());
         return new AskResponse(a.summary(), a.detail(), a.steps());
     }
 }
