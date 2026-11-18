@@ -53,6 +53,8 @@ dependencies {
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.security:spring-security-test'
+	// 대화 저장(JPA) 테스트용 메모리 DB — 운영·개발 DB(PostgreSQL)와 무관
+	testRuntimeOnly 'com.h2database:h2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

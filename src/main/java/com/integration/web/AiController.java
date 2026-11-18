@@ -2,6 +2,7 @@ package com.integration.web;
 
 import com.integration.ai.AiJobService;
 import com.integration.ai.AiService;
+import com.integration.ai.ConversationService;
 import com.integration.ai.ProjectStore;
 import com.integration.ai.SttService;
 import com.integration.domain.User;
@@ -19,7 +20,8 @@ import java.util.List;
  *  - POST /api/ai/ask           : 바로 답(짧은 질문용, 100초 넘으면 Cloudflare가 끊음)
  *  - POST /api/ai/jobs          : 백그라운드로 시작 → GET /api/ai/jobs/{id} 로 진행 상황·답 확인
  *  - GET  /api/ai/jobs/latest   : 어느 화면에서 물었든 가장 최근 질문 (안경 앱이 따라감)
- *  - POST /api/ai/conversation/reset : 새 대화 (모든 화면 공통)
+ *  - POST /api/ai/conversation/reset : 안경의 최근 질문 표시 비우기
+ *  - /api/ai/conversations       : 프로젝트별 여러 대화(목록·새 대화·내역·이름 바꾸기·삭제), DB에 저장
  *  - /api/ai/projects           : Claude가 읽을 프로젝트(GitHub 클론, zip 업로드) 관리
  *  - POST /api/ai/transcribe    : 안경 마이크 음성(PCM) → 텍스트 (서버의 whisper)
  */
@@ -35,13 +37,16 @@ public class AiController {
     private final AiJobService jobs;
     private final ProjectStore projects;
     private final SttService stt;
+    private final ConversationService conversations;
     private final CurrentUserService currentUser;
 
-    public AiController(AiService ai, AiJobService jobs, ProjectStore projects, SttService stt, CurrentUserService currentUser) {
+    public AiController(AiService ai, AiJobService jobs, ProjectStore projects, SttService stt,
+                        ConversationService conversations, CurrentUserService currentUser) {
         this.ai = ai;
         this.jobs = jobs;
         this.projects = projects;
         this.stt = stt;
+        this.conversations = conversations;
         this.currentUser = currentUser;
     }
 
@@ -65,13 +70,15 @@ public class AiController {
     }
 
     /**
+     * conversationId: 이어 갈 대화. 없으면 project로 새 대화를 만듭니다(대화의 프로젝트가 우선).
      * project: 읽게 할 프로젝트 이름(없으면 일반 질문).
-     * history: 예전 앱(0.1.5)만 보냅니다. 새 앱은 비워 두고, 대화는 서버가 사용자별로 이어 갑니다.
+     * history: 예전 앱(0.1.5)만 보냅니다. 있으면 저장하지 않고 그 기록을 씁니다.
      */
-    public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images, String project) {}
+    public record AskRequest(String question, List<AiService.Turn> history, List<AiService.Image> images,
+                             String project, Long conversationId) {}
     /** answer: 안경용 요약, detail: 폰용 전체 답(코드 등, 없으면 null), steps: 할 일로 저장할 작업 단계. */
     public record AskResponse(String answer, String detail, List<String> steps) {}
-    public record JobStarted(String jobId) {}
+    public record JobStarted(String jobId, Long conversationId) {}
 
     @PostMapping("/ask")
     public AskResponse ask(@RequestBody AskRequest req) {
@@ -85,13 +92,24 @@ public class AiController {
     public JobStarted startJob(@RequestBody AskRequest req) {
         User user = requireAllowed();
         String q = question(req);
-        // 프로젝트 확인은 여기서(요청 스레드) 해서, 없는 프로젝트면 바로 에러로 알립니다.
-        AiService.ProjectRef project = projectRef(req.project());
         Long id = user.getId();
         String email = user.getEmail();
+        boolean legacy = req.history() != null;
+        Long conversationId = null;
+        String projectName = req.project();
+        if (!legacy) {
+            ConversationService.ConversationView conv = req.conversationId() != null
+                    ? conversations.get(id, req.conversationId())
+                    : conversations.create(id, req.project());
+            conversationId = conv.id();
+            projectName = conv.project();
+        }
+        // 프로젝트 확인은 여기서(요청 스레드) 해서, 없는 프로젝트면 바로 에러로 알립니다.
+        AiService.ProjectRef project = projectRef(projectName);
         int imageCount = req.images() == null ? 0 : req.images().size();
-        return new JobStarted(jobs.start(id, q, req.project(), imageCount, req.history(), (history, progress) ->
-                ai.ask(id, email, q, history, req.images(), project, progress)));
+        String jobId = jobs.start(id, conversationId, q, projectName, imageCount, req.history(), (history, progress) ->
+                ai.ask(id, email, q, history, req.images(), project, progress));
+        return new JobStarted(jobId, conversationId);
     }
 
     /** 가장 최근 질문. 없으면 빈 응답(null). */
@@ -108,6 +126,36 @@ public class AiController {
     @GetMapping("/jobs/{id}")
     public AiJobService.JobView job(@PathVariable String id) {
         return jobs.get(requireAllowed().getId(), id);
+    }
+
+    // ---------- 대화 ----------
+
+    public record CreateConversationRequest(String project) {}
+    public record RenameConversationRequest(String title) {}
+
+    @GetMapping("/conversations")
+    public List<ConversationService.ConversationView> listConversations() {
+        return conversations.list(requireAllowed().getId());
+    }
+
+    @PostMapping("/conversations")
+    public ConversationService.ConversationView createConversation(@RequestBody CreateConversationRequest req) {
+        return conversations.create(requireAllowed().getId(), req.project());
+    }
+
+    @GetMapping("/conversations/{id}")
+    public ConversationService.Detail conversation(@PathVariable Long id) {
+        return conversations.detail(requireAllowed().getId(), id);
+    }
+
+    @PatchMapping("/conversations/{id}")
+    public ConversationService.ConversationView renameConversation(@PathVariable Long id, @RequestBody RenameConversationRequest req) {
+        return conversations.rename(requireAllowed().getId(), id, req.title());
+    }
+
+    @DeleteMapping("/conversations/{id}")
+    public void deleteConversation(@PathVariable Long id) {
+        conversations.delete(requireAllowed().getId(), id);
     }
 
     // ---------- 프로젝트 ----------
