@@ -117,6 +117,8 @@ app:
     # 비워두면 아무도 못 씁니다(fail-closed). 쉼표로 구분: a@x.com,b@y.com
     allowed-emails: ${AI_ALLOWED_EMAILS:}
     global-daily-limit: ${AI_GLOBAL_DAILY_LIMIT:300}  # 서버 전체 하루 질문 수 상한
+    # Claude가 읽을 프로젝트(GitHub 클론·zip 업로드)를 두는 폴더. 비우면 ~/.momentum-ai/projects
+    workspace-root: ${AI_WORKSPACE_ROOT:}
 
   # ---- 서버-대-서버 내부 호출 키 (n8n → /internal/push) ----
   # n8n이 회의록 저장 성공/실패를 알려올 때 쓰는 공유 비밀. 비워두면 /internal/push가

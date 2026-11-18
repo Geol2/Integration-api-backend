@@ -14,6 +14,11 @@ import com.anthropic.models.beta.messages.BetaMessage;
 import com.anthropic.models.beta.messages.BetaOutputConfig;
 import com.anthropic.models.beta.messages.BetaStopReason;
 import com.anthropic.models.beta.messages.BetaTextBlockParam;
+import com.anthropic.models.beta.messages.BetaTool;
+import com.anthropic.models.beta.messages.BetaToolChoiceAuto;
+import com.anthropic.models.beta.messages.BetaToolChoiceNone;
+import com.anthropic.models.beta.messages.BetaToolResultBlockParam;
+import com.anthropic.models.beta.messages.BetaToolUseBlock;
 import com.anthropic.models.beta.messages.MessageCreateParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -100,6 +106,44 @@ public class AiService {
             단순 설명 질문이면 @@할일@@을 쓰지 않는다.
             """;
 
+    /** 프로젝트를 읽으며 답할 때, 도구를 몇 번까지 쓰게 할지(대화 왕복 수). */
+    static final int MAX_TOOL_TURNS = 25;
+
+    private static final String PROJECT_RULES = """
+
+            지금 사용자의 프로젝트 "%s" 폴더를 읽을 수 있다. 도구: list_files(폴더 구조), read_file(파일 읽기), search(검색).
+            - 프로젝트에 관한 질문이면 추측하지 말고 먼저 search / list_files로 찾고 read_file로 실제 코드를 읽은 뒤 답한다.
+            - 답에는 실제로 읽은 파일 경로와 줄 번호를 쓴다(예: src/g2/screens.js:120).
+            - 도구는 꼭 필요한 만큼만 쓴다. 관련 파일을 몇 개 읽었으면 답한다.
+            - 이 도구로는 읽기만 된다. 수정은 사용자가 직접 하므로, 바꿀 코드를 @@상세@@ 아래에 정확히 쓴다.
+            """;
+
+    private static final List<BetaTool> PROJECT_TOOLS = List.of(
+            tool("list_files", "프로젝트 폴더 구조를 본다. 폴더는 끝에 / 가 붙는다. node_modules·build 같은 폴더는 빠진다.",
+                    Map.of("path", Map.of("type", "string", "description", "프로젝트 루트 기준 폴더 경로. 루트는 ."),
+                            "depth", Map.of("type", "integer", "description", "몇 단계까지 볼지 1~4 (기본 2)")),
+                    List.of("path")),
+            tool("read_file", "파일을 줄 번호와 함께 읽는다. 한 번에 최대 400줄.",
+                    Map.of("path", Map.of("type", "string", "description", "프로젝트 루트 기준 파일 경로"),
+                            "start_line", Map.of("type", "integer", "description", "시작 줄(1부터, 기본 1)"),
+                            "end_line", Map.of("type", "integer", "description", "끝 줄(생략하면 start_line부터 400줄)")),
+                    List.of("path")),
+            tool("search", "프로젝트 파일 내용을 검색한다. 결과는 경로:줄: 내용 형식. 기본은 대소문자를 무시한 문자열 검색.",
+                    Map.of("query", Map.of("type", "string", "description", "찾을 문자열(또는 regex=true일 때 정규식)"),
+                            "path", Map.of("type", "string", "description", "검색할 폴더(기본 . = 전체)"),
+                            "regex", Map.of("type", "boolean", "description", "정규식으로 검색할지(기본 false)")),
+                    List.of("query")));
+
+    private static BetaTool tool(String name, String description, Map<String, Object> props, List<String> required) {
+        BetaTool.InputSchema.Properties.Builder pb = BetaTool.InputSchema.Properties.builder();
+        props.forEach((k, v) -> pb.putAdditionalProperty(k, JsonValue.from(v)));
+        return BetaTool.builder()
+                .name(name)
+                .description(description)
+                .inputSchema(BetaTool.InputSchema.builder().properties(pb.build()).required(required).build())
+                .build();
+    }
+
     private final AnthropicClient client;   // 키가 없으면 null — 기능 꺼짐
     private final String model;
     private final BetaOutputConfig.Effort effort;
@@ -133,6 +177,8 @@ public class AiService {
         }
     }
 
+    // 생성자가 두 개라 스프링이 쓸 쪽을 표시합니다.
+    @org.springframework.beans.factory.annotation.Autowired
     public AiService(
             @Value("${app.ai.api-key:}") String apiKey,
             @Value("${app.ai.model:claude-opus-5-5}") String model,
@@ -142,11 +188,18 @@ public class AiService {
             @Value("${app.ai.global-daily-limit:300}") int globalDailyLimit,
             @Value("${app.ai.allowed-emails:}") String allowedEmails,
             @Value("${app.push.zone:Asia/Seoul}") String zone) {
-        this.client = apiKey.isBlank() ? null : AnthropicOkHttpClient.builder()
+        this(apiKey, model, effort, contextFile, dailyLimit, globalDailyLimit, allowedEmails, zone, "");
+    }
+
+    /** baseUrl: 테스트에서 가짜 Claude 서버를 가리킬 때만 씁니다. 비우면 api.anthropic.com. */
+    AiService(String apiKey, String model, String effort, String contextFile, int dailyLimit,
+              int globalDailyLimit, String allowedEmails, String zone, String baseUrl) {
+        AnthropicOkHttpClient.Builder cb = AnthropicOkHttpClient.builder()
                 .apiKey(apiKey)
                 // 사진 여러 장 + 긴 코드 답은 1분을 넘기기도 합니다.
-                .timeout(Duration.ofSeconds(180))
-                .build();
+                .timeout(Duration.ofSeconds(180));
+        if (baseUrl != null && !baseUrl.isBlank()) cb.baseUrl(baseUrl).maxRetries(0);
+        this.client = apiKey.isBlank() ? null : cb.build();
         this.model = model;
         this.effort = BetaOutputConfig.Effort.of(effort);
         this.dailyLimit = dailyLimit;
@@ -190,6 +243,15 @@ public class AiService {
     }
 
     public Answer ask(Long userId, String email, String question, List<Turn> history, List<Image> images) {
+        return ask(userId, email, question, history, images, null, p -> {});
+    }
+
+    /**
+     * projectDir가 있으면 Claude가 그 폴더를 도구로 읽으며 답합니다(여러 번 왕복).
+     * progress에는 "읽기: src/App.jsx" 같은 진행 상황이 실시간으로 들어옵니다.
+     */
+    public Answer ask(Long userId, String email, String question, List<Turn> history, List<Image> images,
+                      ProjectRef project, Consumer<String> progress) {
         if (client == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
         }
@@ -200,15 +262,29 @@ public class AiService {
         List<BetaContentBlockParam> imageBlocks = toImageBlocks(images);
         takeQuota(userId);
 
+        List<BetaTextBlockParam> system = new ArrayList<>();
+        // 규칙 + 프로젝트 자료는 매번 같으므로 캐시합니다 (두 번째 질문부터 싸고 빠름).
+        system.add(BetaTextBlockParam.builder()
+                .text(systemPrompt)
+                .cacheControl(BetaCacheControlEphemeral.builder().build())
+                .build());
+        ProjectTools tools = null;
+        if (project != null) {
+            system.add(BetaTextBlockParam.builder().text(PROJECT_RULES.formatted(project.name())).build());
+            try {
+                tools = new ProjectTools(project.dir());
+            } catch (java.io.IOException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "프로젝트 폴더를 열 수 없어요.");
+            }
+        }
+
         MessageCreateParams.Builder params = MessageCreateParams.builder()
                 .model(model)
                 // 생각(thinking) 토큰도 여기에 포함되므로 답 길이보다 넉넉하게 잡습니다.
                 .maxTokens(16000L)
-                // 규칙 + 프로젝트 자료는 매번 같으므로 캐시합니다 (두 번째 질문부터 싸고 빠름).
-                .systemOfBetaTextBlockParams(List.of(BetaTextBlockParam.builder()
-                        .text(systemPrompt)
-                        .cacheControl(BetaCacheControlEphemeral.builder().build())
-                        .build()))
+                .systemOfBetaTextBlockParams(system)
+                // 도구 결과가 쌓이는 대화 전체를 자동 캐시합니다(왕복할수록 앞부분은 캐시에서 읽음).
+                .cacheControl(BetaCacheControlEphemeral.builder().build())
                 .outputConfig(BetaOutputConfig.builder().effort(effort).build())
                 // 안전 분류기가 거절하면 서버가 알아서 다른 모델로 다시 답하게 합니다.
                 .addBeta("server-side-fallback-2026-07-01")
@@ -227,9 +303,34 @@ public class AiService {
             params.addUserMessageOfContentBlockParams(blocks);
         }
 
-        BetaMessage res;
+        if (tools != null) {
+            PROJECT_TOOLS.forEach(params::addTool);
+            params.toolChoice(BetaToolChoiceAuto.builder().build());
+        }
+
+        BetaMessage res = call(params);
+        for (int turn = 1; tools != null && BetaStopReason.TOOL_USE.equals(res.stopReason().orElse(null)); turn++) {
+            params.addMessage(res.toParam());
+            List<BetaContentBlockParam> results = new ArrayList<>();
+            for (var block : res.content()) {
+                BetaToolUseBlock use = block.toolUse().orElse(null);
+                if (use == null) continue;
+                results.add(runTool(tools, use, progress));
+            }
+            params.addUserMessageOfContentBlockParams(results);
+            if (turn >= MAX_TOOL_TURNS) {
+                // 더 읽지 말고 지금까지 읽은 것으로 답하게 합니다.
+                progress.accept("정리하는 중");
+                params.toolChoice(BetaToolChoiceNone.builder().build());
+            }
+            res = call(params);
+        }
+        return toAnswer(res);
+    }
+
+    private BetaMessage call(MessageCreateParams.Builder params) {
         try {
-            res = client.beta().messages().create(params.build());
+            return client.beta().messages().create(params.build());
         } catch (RateLimitException e) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 물어봐 주세요.");
         } catch (AnthropicServiceException e) {
@@ -239,7 +340,57 @@ public class AiService {
             log.error("Claude API 연결 실패", e);
             throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Claude에 연결할 수 없어요.");
         }
+    }
 
+    public record ProjectRef(String name, Path dir) {}
+
+    private static BetaContentBlockParam runTool(ProjectTools tools, BetaToolUseBlock use, Consumer<String> progress) {
+        Map<?, ?> in;
+        try {
+            in = use.input(Map.class);
+        } catch (RuntimeException e) {
+            in = Map.of();
+        }
+        String path = str(in.get("path"), ".");
+        String out;
+        boolean error = false;
+        try {
+            out = switch (use.name()) {
+                case "list_files" -> {
+                    progress.accept("목록: " + path);
+                    yield tools.listFiles(path, num(in.get("depth"), 2));
+                }
+                case "read_file" -> {
+                    progress.accept("읽기: " + path);
+                    yield tools.readFile(path, num(in.get("start_line"), 1), num(in.get("end_line"), 0));
+                }
+                case "search" -> {
+                    String q = str(in.get("query"), "");
+                    progress.accept("검색: " + q);
+                    yield tools.search(q, path, Boolean.TRUE.equals(in.get("regex")));
+                }
+                default -> throw new ProjectTools.ToolException("모르는 도구: " + use.name());
+            };
+        } catch (ProjectTools.ToolException e) {
+            out = e.getMessage();
+            error = true;
+        }
+        return BetaContentBlockParam.ofToolResult(BetaToolResultBlockParam.builder()
+                .toolUseId(use.id())
+                .content(out)
+                .isError(error)
+                .build());
+    }
+
+    private static String str(Object v, String dflt) {
+        return v instanceof String s && !s.isBlank() ? s : dflt;
+    }
+
+    private static int num(Object v, int dflt) {
+        return v instanceof Number n ? n.intValue() : dflt;
+    }
+
+    private Answer toAnswer(BetaMessage res) {
         BetaStopReason stop = res.stopReason().orElse(null);
         if (BetaStopReason.REFUSAL.equals(stop)) {
             return new Answer("이 질문에는 답할 수 없어요.", null);
