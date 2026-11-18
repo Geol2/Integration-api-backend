@@ -3,6 +3,7 @@ package com.integration.web;
 import com.integration.ai.AiJobService;
 import com.integration.ai.AiService;
 import com.integration.ai.ProjectStore;
+import com.integration.ai.SttService;
 import com.integration.domain.User;
 import com.integration.security.CurrentUserService;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import java.util.List;
  *  - GET  /api/ai/jobs/latest   : 어느 화면에서 물었든 가장 최근 질문 (안경 앱이 따라감)
  *  - POST /api/ai/conversation/reset : 새 대화 (모든 화면 공통)
  *  - /api/ai/projects           : Claude가 읽을 프로젝트(GitHub 클론, zip 업로드) 관리
+ *  - POST /api/ai/transcribe    : 안경 마이크 음성(PCM) → 텍스트 (서버의 whisper)
  */
 @RestController
 @RequestMapping("/api/ai")
@@ -32,21 +34,34 @@ public class AiController {
     private final AiService ai;
     private final AiJobService jobs;
     private final ProjectStore projects;
+    private final SttService stt;
     private final CurrentUserService currentUser;
 
-    public AiController(AiService ai, AiJobService jobs, ProjectStore projects, CurrentUserService currentUser) {
+    public AiController(AiService ai, AiJobService jobs, ProjectStore projects, SttService stt, CurrentUserService currentUser) {
         this.ai = ai;
         this.jobs = jobs;
         this.projects = projects;
+        this.stt = stt;
         this.currentUser = currentUser;
     }
 
-    public record StatusResponse(boolean enabled) {}
+    /** voice: 서버에 음성 인식(whisper)이 설치돼 있어 마이크로 물을 수 있는지. */
+    public record StatusResponse(boolean enabled, boolean voice) {}
+    public record TranscribeResponse(String text) {}
 
     /** 앱이 "Claude에게 묻기" 메뉴를 보여줄지 정합니다. 허용된 계정이 아니면 메뉴 자체가 숨겨집니다. */
     @GetMapping("/status")
     public StatusResponse status() {
-        return new StatusResponse(ai.isEnabledFor(currentUser.require().getEmail()));
+        boolean enabled = ai.isEnabledFor(currentUser.require().getEmail());
+        return new StatusResponse(enabled, enabled && stt.isAvailable());
+    }
+
+    /** audio: PCM 16bit little-endian 모노. rate: 샘플레이트(기본 16000). */
+    @PostMapping("/transcribe")
+    public TranscribeResponse transcribe(@RequestParam("audio") MultipartFile audio,
+                                         @RequestParam(value = "rate", defaultValue = "16000") int rate) throws java.io.IOException {
+        requireAllowed();
+        return new TranscribeResponse(stt.transcribe(audio.getBytes(), rate));
     }
 
     /**
