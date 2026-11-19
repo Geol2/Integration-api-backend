@@ -161,4 +161,24 @@ class ClaudeCodeEngineTest {
         assertThat(service("test-key", url, missing).ask(1L, "me@x.com", "q", List.of(), List.of(), null, p -> {}).engine()).isEqualTo("api");
         assertThat(Files.exists(tmp.resolve("calls.txt"))).isFalse();
     }
+
+    @Test
+    void findsClaudeWithStrayWhitespaceOrInHomeLocalBin() throws Exception {
+        Path bin = fakeClaude("ok");
+        // Jenkins에 붙여 넣다 들어간 공백·줄바꿈
+        assertThat(new ClaudeCodeEngine("auto", "  " + bin + "\n").installed()).isTrue();
+        // 경로를 안 적어도 ~/.local/bin/claude 에서 찾음 (PATH에 없어도)
+        String oldHome = System.getProperty("user.home");
+        try {
+            Path home = Files.createDirectories(tmp.resolve("home/.local/bin"));
+            // (이 기계 PATH에 진짜 claude가 있을 수 있어 테스트용 이름을 씁니다)
+            Files.copy(bin, home.resolve("claude-g2-test"));
+            System.setProperty("user.home", tmp.resolve("home").toString());
+            ClaudeCodeEngine cc = new ClaudeCodeEngine("auto", "claude-g2-test");
+            assertThat(cc.installed()).isTrue();
+            assertThat(cc.resolveBin()).isEqualTo(home.resolve("claude-g2-test").toString());
+        } finally {
+            System.setProperty("user.home", oldHome);
+        }
+    }
 }

@@ -79,11 +79,13 @@ public class ClaudeCodeEngine {
 
     public ClaudeCodeEngine(@Value("${app.ai.engine:auto}") String engine,
                             @Value("${app.ai.claude-bin:claude}") String bin) {
-        this.bin = bin;
+        // Jenkins에 붙여 넣은 값에 공백·줄바꿈이 섞이면 경로 확인이 실패하므로 다듬습니다.
+        this.bin = bin == null || bin.isBlank() ? "claude" : bin.strip();
         this.enabled = !"api".equalsIgnoreCase(engine.strip());
         if (!enabled) log.info("Claude 엔진: API만 사용 (AI_ENGINE=api)");
-        else if (resolveBin() == null) log.info("Claude 엔진: Claude Code({}) 없음 — API만 사용", bin);
-        else log.info("Claude 엔진: 구독(Claude Code) 먼저, 한도에 걸리면 API");
+        else if (resolveBin() == null) {
+            log.info("Claude 엔진: Claude Code 없음 — API만 사용 (찾아본 곳: {}, PATH, ~/.local/bin/claude)", this.bin);
+        } else log.info("Claude 엔진: 구독(Claude Code {}) 먼저, 한도에 걸리면 API", resolveBin());
     }
 
     /** 지금 구독으로 시도해 볼지. 쉬는 중이거나 claude가 없으면 false. */
@@ -273,15 +275,22 @@ public class ClaudeCodeEngine {
         }
     }
 
-    private String resolveBin() {
+    /**
+     * 실행 파일 찾기: 경로를 적었으면 그 경로, 아니면 PATH, 그래도 없으면 공식 설치 위치(~/.local/bin/claude).
+     * Jenkins가 띄운 프로세스의 PATH에는 보통 ~/.local/bin이 없어서 마지막 단계가 필요합니다.
+     */
+    String resolveBin() {
         if (bin.contains(File.separator)) return Files.isExecutable(Path.of(bin)) ? bin : null;
         String pathEnv = System.getenv("PATH");
-        if (pathEnv == null) return null;
-        for (String dir : pathEnv.split(File.pathSeparator)) {
-            Path p = Path.of(dir, bin);
-            if (Files.isExecutable(p)) return p.toString();
+        if (pathEnv != null) {
+            for (String dir : pathEnv.split(File.pathSeparator)) {
+                if (dir.isBlank()) continue;
+                Path p = Path.of(dir, bin);
+                if (Files.isExecutable(p)) return p.toString();
+            }
         }
-        return null;
+        Path home = Path.of(System.getProperty("user.home"), ".local", "bin", bin);
+        return Files.isExecutable(home) ? home.toString() : null;
     }
 
     private static String projectRules(String name) {
