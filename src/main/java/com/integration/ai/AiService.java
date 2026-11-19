@@ -156,6 +156,7 @@ public class AiService {
     private final AnthropicClient client;   // 키가 없으면 null — 기능 꺼짐
     private final String model;
     private final BetaOutputConfig.Effort effort;
+    private final String effortName;   // Claude Code --effort 에 그대로 넘김
     private final String systemPrompt;
     private final int dailyLimit;
     private final int globalDailyLimit;
@@ -175,8 +176,12 @@ public class AiService {
     public record Image(String mediaType, String data) {}
 
     /** summary: 안경에 띄울 짧은 답. detail: 폰에 띄울 전체 답(없으면 null). */
-    public record Answer(String summary, String detail, List<String> steps) {
+    /** engine: 누가 답했는지 — "subscription"(구독, Claude Code) 또는 "api"(API 키). */
+    public record Answer(String summary, String detail, List<String> steps, String engine) {
+        public Answer(String summary, String detail, List<String> steps) { this(summary, detail, steps, "api"); }
         Answer(String summary, String detail) { this(summary, detail, List.of()); }
+
+        public Answer withEngine(String e) { return new Answer(summary, detail, steps, e); }
 
         /** 이어서 묻기용으로 대화 기록에 남길 원문. */
         public String full() {
@@ -211,6 +216,7 @@ public class AiService {
         this.client = apiKey.isBlank() ? null : cb.build();
         this.model = model;
         this.effort = BetaOutputConfig.Effort.of(effort);
+        this.effortName = effort;
         this.dailyLimit = dailyLimit;
         this.globalDailyLimit = globalDailyLimit;
         this.allowedEmails = parseEmails(allowedEmails);
@@ -230,7 +236,23 @@ public class AiService {
 
     /** 이 사용자가 Claude 기능을 쓸 수 있는지 (키가 있고, 허용 목록에 있음). 앱이 메뉴를 숨기는 데 씁니다. */
     public boolean isEnabledFor(String email) {
-        return client != null && email != null && allowedEmails.contains(email.strip().toLowerCase(Locale.ROOT));
+        boolean anyEngine = client != null || (claudeCode != null && claudeCode.installed());
+        return anyEngine && email != null && allowedEmails.contains(email.strip().toLowerCase(Locale.ROOT));
+    }
+
+    /** 구독(Claude Code)으로 먼저 답하기. 없으면(테스트 등) API만 씁니다. */
+    private ClaudeCodeEngine claudeCode;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setClaudeCode(ClaudeCodeEngine claudeCode) {
+        this.claudeCode = claudeCode;
+    }
+
+    /** 화면 표시용: 구독 상태와 API 키 유무. */
+    public record EngineState(ClaudeCodeEngine.State subscription, boolean api) {}
+
+    public EngineState engineState() {
+        return new EngineState(claudeCode == null ? null : claudeCode.state(), client != null);
     }
 
     private static String loadContext(String contextFile) {
@@ -261,7 +283,7 @@ public class AiService {
      */
     public Answer ask(Long userId, String email, String question, List<Turn> history, List<Image> images,
                       ProjectRef project, Consumer<String> progress) {
-        if (client == null) {
+        if (client == null && (claudeCode == null || !claudeCode.installed())) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
         }
         if (!isEnabledFor(email)) {
@@ -269,6 +291,27 @@ public class AiService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 계정은 Claude 기능을 쓸 수 없어요.");
         }
         List<BetaContentBlockParam> imageBlocks = toImageBlocks(images);
+
+        // 1) 구독(Claude Code)으로 먼저. 한도에 걸리거나 쓸 수 없으면 2) API 키로.
+        if (claudeCode != null && claudeCode.ready()) {
+            try {
+                return claudeCode.ask(model, effortName, systemPrompt, question, history, images,
+                        project == null ? null : project.name(), project == null ? null : project.dir(), progress);
+            } catch (ClaudeCodeEngine.Unavailable e) {
+                if (client == null) {
+                    throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                            e.limit ? "구독 한도에 걸렸고 API 키가 없어요. 한도가 풀린 뒤 다시 물어봐 주세요." : "Claude Code로 답하지 못했어요: " + e.getMessage());
+                }
+                progress.accept(e.limit ? "구독 한도 → API로 답해요" : "구독을 못 써서 API로 답해요");
+            }
+        } else if (client == null) {
+            ClaudeCodeEngine.State st = claudeCode == null ? null : claudeCode.state();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    st != null && st.pausedUntil() != null
+                            ? "구독을 쉬는 중이고(" + st.reason() + ") API 키가 없어요. 잠시 후 다시 물어봐 주세요."
+                            : "AI 기능이 꺼져 있어요.");
+        }
+        // API 비용 안전장치(하루 횟수)는 API로 답할 때만 셉니다.
         takeQuota(userId);
 
         List<BetaTextBlockParam> system = new ArrayList<>();

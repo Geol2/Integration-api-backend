@@ -107,6 +107,10 @@ app:
   # 비워두면 /api/ai/ask 가 503으로 응답할 뿐 API는 정상 기동합니다.
   ai:
     api-key: ${ANTHROPIC_API_KEY:}
+    # 누가 답할지: auto = 구독(서버의 Claude Code) 먼저, 한도에 걸리면 API 키 / api = API 키만
+    # 구독을 쓰려면 백엔드를 띄우는 사용자로 Claude Code를 설치하고 로그인하세요(claude setup-token).
+    engine: ${AI_ENGINE:auto}
+    claude-bin: ${AI_CLAUDE_BIN:claude}
     model: ${AI_MODEL:claude-opus-5-5}
     effort: ${AI_EFFORT:medium}               # low | medium | high — 낮을수록 빠르고 쌉니다
     # 프로젝트 설명 파일(README·AGENTS.md 등을 이어 붙인 텍스트). 있으면 시스템 프롬프트에

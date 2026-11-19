@@ -60,6 +60,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 구독(Claude Code)으로 답할 때 API 키가 자식 프로세스로 새지 않는지 확인하는 테스트용 가짜 값
+	environment 'ANTHROPIC_API_KEY', 'test-key-must-not-reach-claude-code'
 }
 
 // Prints a VAPID key pair for the push reminders: ./gradlew -q vapidKeys

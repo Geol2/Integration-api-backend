@@ -69,7 +69,7 @@ public class AiJobService {
     /** turns: 이 대화의 질문·답 쌍 수(진행 중인 질문은 끝나야 셉니다). */
     public record JobView(String id, Status status, Long conversationId, String question, String project, int imageCount,
                           Instant createdAt, List<String> progress,
-                          String answer, String detail, List<String> steps, String error, int turns) {}
+                          String answer, String detail, List<String> steps, String engine, String error, int turns) {}
 
     /** 질문에 답하는 일. 대화 기록과 진행 상황 콜백을 받아 답을 만듭니다(백그라운드 스레드). */
     @FunctionalInterface
@@ -154,7 +154,7 @@ public class AiJobService {
         return new JobView(job.id, job.status, job.conversationId, job.question, job.project, job.imageCount,
                 job.createdAt, progress,
                 a == null ? null : a.summary(), a == null ? null : a.detail(), a == null ? List.of() : a.steps(),
-                job.error, turns);
+                a == null ? null : a.engine(), job.error, turns);
     }
 
     private void cleanup() {

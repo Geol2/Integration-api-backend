@@ -41,11 +41,12 @@ public class ConversationService {
         }
     }
 
+    /** engine: 누가 답했는지 — subscription(구독) / api / null(예전 기록). */
     public record TurnView(Long id, String question, int imageCount, String answer, String detail,
-                           List<String> steps, Instant createdAt) {
+                           List<String> steps, String engine, Instant createdAt) {
         static TurnView of(AiMessage m) {
             return new TurnView(m.getId(), m.getQuestion(), m.getImageCount(), m.getAnswer(), m.getDetail(),
-                    splitSteps(m.getSteps()), m.getCreatedAt());
+                    splitSteps(m.getSteps()), m.getEngine(), m.getCreatedAt());
         }
     }
 
@@ -127,6 +128,7 @@ public class ConversationService {
         m.setAnswer(a.summary());
         m.setDetail(a.detail());
         m.setSteps(a.steps().isEmpty() ? null : String.join("\n", a.steps()));
+        m.setEngine(a.engine());
         messages.save(m);
         c.setUpdatedAt(Instant.now());
         if (NEW_TITLE.equals(c.getTitle())) c.setTitle(titleFrom(question, imageCount));

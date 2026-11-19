@@ -33,9 +33,12 @@ public class SttService {
     static final int MAX_SECONDS = 60;
     static final double MIN_SECONDS = 0.4;
 
-    /** 개발 용어를 미리 알려 주면 "자바 스프링" 대신 "Java Spring"처럼 받아 적습니다. */
+    /**
+     * 개발 용어를 미리 알려 주면 "자바 스프링" 대신 "Java Spring"처럼 받아 적습니다.
+     * 명령줄 인자로 넘기므로 ASCII만 씁니다 — 서버 JVM이 UTF-8 로캘이 아니면 인자 속 한글이 ???로 깨집니다.
+     */
     private static final String PROMPT =
-            "개발 질문입니다. Java, Spring Boot, JPA, Python, SQL, SELECT, JOIN, React, Vite, 컨트롤러, 서비스, 리포지토리, 엔티티, 커밋.";
+            "Java, Spring Boot, JPA, Hibernate, Python, SQL, SELECT, JOIN, GROUP BY, React, Vite, Controller, Service, Repository, Entity, commit, merge.";
 
     /** 조용한 녹음에 whisper가 지어내는 대표 문장들 — 이것만 나오면 못 알아들은 것으로 봅니다. */
     private static final Set<String> HALLUCINATIONS = Set.of(

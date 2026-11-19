@@ -44,6 +44,10 @@ public class AiMessage {
     @Column(columnDefinition = "TEXT")
     private String steps;
 
+    /** 누가 답했는지: subscription(구독, Claude Code) 또는 api. 예전 행은 null. */
+    @Column(length = 20)
+    private String engine;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 }

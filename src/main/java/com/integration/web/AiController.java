@@ -50,15 +50,18 @@ public class AiController {
         this.currentUser = currentUser;
     }
 
-    /** voice: 서버에 음성 인식(whisper)이 설치돼 있어 마이크로 물을 수 있는지. */
-    public record StatusResponse(boolean enabled, boolean voice) {}
+    /**
+     * voice: 서버에 음성 인식(whisper)이 설치돼 있어 마이크로 물을 수 있는지.
+     * engine: 구독(Claude Code) 상태와 API 키 유무 — 화면에 "구독으로 답하는 중 / 한도라 API" 표시용.
+     */
+    public record StatusResponse(boolean enabled, boolean voice, AiService.EngineState engine) {}
     public record TranscribeResponse(String text) {}
 
     /** 앱이 "Claude에게 묻기" 메뉴를 보여줄지 정합니다. 허용된 계정이 아니면 메뉴 자체가 숨겨집니다. */
     @GetMapping("/status")
     public StatusResponse status() {
         boolean enabled = ai.isEnabledFor(currentUser.require().getEmail());
-        return new StatusResponse(enabled, enabled && stt.isAvailable());
+        return new StatusResponse(enabled, enabled && stt.isAvailable(), enabled ? ai.engineState() : null);
     }
 
     /** audio: PCM 16bit little-endian 모노. rate: 샘플레이트(기본 16000). */
