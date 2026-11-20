@@ -146,6 +146,16 @@ public class AiController {
         return conversations.create(requireAllowed().getId(), req.project());
     }
 
+    /** PC Claude Code 세션 가져오기(동기화 스크립트용). 같은 externalId면 새로 생긴 질문만 붙습니다. */
+    public record ImportConversationRequest(String externalId, String title, List<ConversationService.ImportedTurn> turns) {}
+
+    @PostMapping("/conversations/import")
+    public ConversationService.ImportResult importConversation(@RequestBody ImportConversationRequest req) {
+        if (req.turns() != null && req.turns().size() > 2000)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "한 번에 2000개까지 보낼 수 있어요.");
+        return conversations.importTurns(requireAllowed().getId(), req.externalId(), req.title(), req.turns());
+    }
+
     @GetMapping("/conversations/{id}")
     public ConversationService.Detail conversation(@PathVariable Long id) {
         return conversations.detail(requireAllowed().getId(), id);

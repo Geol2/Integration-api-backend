@@ -134,6 +134,71 @@ public class ConversationService {
         if (NEW_TITLE.equals(c.getTitle())) c.setTitle(titleFrom(question, imageCount));
     }
 
+    // ---------- 밖에서 가져오기 (PC Claude Code 세션 동기화) ----------
+
+    /** 가져온 질문·답 한 쌍. at: 질문한 때(없으면 지금). */
+    public record ImportedTurn(String question, String answer, Instant at) {}
+    public record ImportResult(ConversationView conversation, int added) {}
+
+    static final String IMPORT_ENGINE = "claude-code";
+    private static final int SUMMARY_CHARS = 280;
+    private static final int MAX_TEXT = 200_000;
+
+    /**
+     * externalId(세션 ID)로 대화를 찾거나 만들고, 이미 들어 있는 질문 수 뒤의 것만 붙입니다.
+     * 그래서 같은 세션을 여러 번 보내도 중복되지 않고, 이어진 부분만 늘어납니다.
+     */
+    @Transactional
+    public ImportResult importTurns(Long userId, String externalId, String title, List<ImportedTurn> turns) {
+        String ext = externalId == null ? "" : externalId.strip();
+        if (ext.isEmpty() || ext.length() > 80) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "externalId가 필요합니다(80자 이하).");
+        AiConversation c = conversations.findFirstByUserIdAndExternalId(userId, ext).orElseGet(() -> {
+            AiConversation n = new AiConversation();
+            n.setUserId(userId);
+            n.setExternalId(ext);
+            n.setTitle(NEW_TITLE);
+            return conversations.save(n);
+        });
+        int have = (int) messages.countByConversationId(c.getId());
+        int added = 0;
+        Instant last = null;
+        List<ImportedTurn> list = turns == null ? List.of() : turns;
+        for (int i = have; i < list.size(); i++) {
+            ImportedTurn t = list.get(i);
+            String q = clip(t.question());
+            String a = clip(t.answer());
+            AiMessage m = new AiMessage();
+            m.setConversationId(c.getId());
+            m.setUserId(userId);
+            m.setQuestion(q.isEmpty() ? "(빈 질문)" : q);
+            m.setAnswer(summary(a));
+            m.setDetail(a.length() > SUMMARY_CHARS ? a : null);
+            m.setEngine(IMPORT_ENGINE);
+            if (t.at() != null) m.setCreatedAt(t.at());
+            messages.save(m);
+            last = t.at() != null ? t.at() : Instant.now();
+            added++;
+        }
+        String tt = title == null ? "" : title.replaceAll("\\s+", " ").strip();
+        if (!tt.isEmpty()) c.setTitle(tt.length() > 100 ? tt.substring(0, 100) : tt);
+        else if (NEW_TITLE.equals(c.getTitle()) && !list.isEmpty()) c.setTitle(titleFrom(list.get(0).question() == null ? "" : list.get(0).question(), 0));
+        if (last != null) c.setUpdatedAt(last);
+        return new ImportResult(ConversationView.of(c), added);
+    }
+
+    private static String clip(String s) {
+        if (s == null) return "";
+        String t = s.strip();
+        return t.length() > MAX_TEXT ? t.substring(0, MAX_TEXT) + "\n…(잘림)" : t;
+    }
+
+    /** 안경·목록용 짧은 답: 첫 문단에서 SUMMARY_CHARS자까지. */
+    static String summary(String a) {
+        if (a.isEmpty()) return "(답 없음)";
+        String first = a.split("\\n\\s*\\n", 2)[0].strip();
+        return first.length() > SUMMARY_CHARS ? first.substring(0, SUMMARY_CHARS) + "…" : first;
+    }
+
     static String titleFrom(String question, int imageCount) {
         String q = question.replaceAll("\\s+", " ").strip();
         if (q.isEmpty()) q = imageCount > 0 ? "사진 " + imageCount + "장" : NEW_TITLE;
