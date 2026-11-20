@@ -10,4 +10,5 @@ import java.util.Optional;
 public interface AiConversationRepository extends JpaRepository<AiConversation, Long> {
     List<AiConversation> findByUserIdOrderByUpdatedAtDesc(Long userId, Pageable page);
     Optional<AiConversation> findByIdAndUserId(Long id, Long userId);
+    Optional<AiConversation> findFirstByUserIdAndExternalId(Long userId, String externalId);
 }
