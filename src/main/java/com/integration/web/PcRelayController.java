@@ -62,7 +62,8 @@ public class PcRelayController {
     }
 
     @PutMapping("/agents/{agentId}")
-    public Job hello(@PathVariable String agentId, @RequestBody AgentHello hello) {
+    public Job hello(@PathVariable String agentId, @RequestBody AgentHello hello,
+                     @RequestParam(defaultValue = "false") boolean busy) {
         Long uid = requireAllowed().getId();
         checkId(agentId, "agentId");
         List<SessionInfo> ss = hello.sessions() == null ? List.of()
@@ -71,6 +72,7 @@ public class PcRelayController {
         String name = hello.name() == null || hello.name().isBlank() ? agentId : clip(hello.name().strip(), 60);
         agents.computeIfAbsent(uid, k -> new ConcurrentHashMap<>()).put(agentId, new Agent(agentId, name, Instant.now(), ss));
 
+        if (busy) return null; // 실행 중엔 생존 신호만
         Deque<Job> q = jobsOf(uid);
         synchronized (q) {
             for (Job j : q) {
