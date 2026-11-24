@@ -40,6 +40,12 @@ public class AiController {
     private final ConversationService conversations;
     private final CurrentUserService currentUser;
 
+    // ---------- 안경에 띄우기 ----------
+    // 폰·PC에서 보고 있는 대화의 답 하나를 안경에 띄웁니다(켤 때만). 서버 메모리에만 두며, 재시작하면 꺼집니다.
+    public record GlassesPin(Long conversationId, Long turnId, java.time.Instant at) {}
+    public record GlassesPinRequest(Long conversationId, Long turnId) {}
+    private final java.util.Map<Long, GlassesPin> glassesPins = new java.util.concurrent.ConcurrentHashMap<>();
+
     public AiController(AiService ai, AiJobService jobs, ProjectStore projects, SttService stt,
                         ConversationService conversations, CurrentUserService currentUser) {
         this.ai = ai;
@@ -155,12 +161,6 @@ public class AiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "한 번에 2000개까지 보낼 수 있어요.");
         return conversations.importTurns(requireAllowed().getId(), req.externalId(), req.title(), req.turns());
     }
-
-    // ---------- 안경에 띄우기 ----------
-    // 폰·PC에서 보고 있는 대화의 답 하나를 안경에 띄웁니다(켤 때만). 서버 메모리에만 두며, 재시작하면 꺼집니다.
-    public record GlassesPin(Long conversationId, Long turnId, java.time.Instant at) {}
-    public record GlassesPinRequest(Long conversationId, Long turnId) {}
-    private final java.util.Map<Long, GlassesPin> glassesPins = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 지금 안경에 띄운 답. 없으면 빈 응답(null). */
     @GetMapping("/glasses")
