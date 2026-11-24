@@ -156,6 +156,33 @@ public class AiController {
         return conversations.importTurns(requireAllowed().getId(), req.externalId(), req.title(), req.turns());
     }
 
+    // ---------- 안경에 띄우기 ----------
+    // 폰·PC에서 보고 있는 대화의 답 하나를 안경에 띄웁니다(켤 때만). 서버 메모리에만 두며, 재시작하면 꺼집니다.
+    public record GlassesPin(Long conversationId, Long turnId, java.time.Instant at) {}
+    public record GlassesPinRequest(Long conversationId, Long turnId) {}
+    private final java.util.Map<Long, GlassesPin> glassesPins = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 지금 안경에 띄운 답. 없으면 빈 응답(null). */
+    @GetMapping("/glasses")
+    public GlassesPin glassesPin() {
+        return glassesPins.get(requireAllowed().getId());
+    }
+
+    @PutMapping("/glasses")
+    public GlassesPin pinToGlasses(@RequestBody GlassesPinRequest req) {
+        Long uid = requireAllowed().getId();
+        if (req.conversationId() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "conversationId가 필요합니다.");
+        conversations.get(uid, req.conversationId()); // 내 대화인지 확인(아니면 404)
+        GlassesPin p = new GlassesPin(req.conversationId(), req.turnId(), java.time.Instant.now());
+        glassesPins.put(uid, p);
+        return p;
+    }
+
+    @DeleteMapping("/glasses")
+    public void unpinGlasses() {
+        glassesPins.remove(requireAllowed().getId());
+    }
+
     @GetMapping("/conversations/{id}")
     public ConversationService.Detail conversation(@PathVariable Long id) {
         return conversations.detail(requireAllowed().getId(), id);
