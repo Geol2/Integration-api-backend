@@ -110,6 +110,16 @@ public class SecurityConfig {
         config.setExposedHeaders(List.of(JwtAuthenticationFilter.RENEWED_TOKEN_HEADER));
         config.setAllowCredentials(true); // required so the browser sends the session cookie
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // MCP 커넥터 OAuth: 로그인 화면(api 도메인)에서 자기 자신으로 폼을 보내는데, 터널 뒤라 서버는 localhost 로 받아
+        // Origin(https://api.geol2.com)이 다른 출처로 보여 "Invalid CORS request"로 막혔어요. 이 경로들은 쿠키를 안 쓰므로
+        // 출처 제한 없이 허용합니다(먼저 등록한 패턴이 우선).
+        CorsConfiguration open = new CorsConfiguration();
+        open.addAllowedOriginPattern("*");
+        open.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        open.setAllowedHeaders(List.of("*"));
+        open.setAllowCredentials(false);
+        source.registerCorsConfiguration("/oauth/**", open);
+        source.registerCorsConfiguration("/.well-known/**", open);
         source.registerCorsConfiguration("/**", config);
         return source;
     }
