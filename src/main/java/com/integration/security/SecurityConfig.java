@@ -29,6 +29,9 @@ public class SecurityConfig {
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
 
+    @Value("${app.mcp.base-url:https://api.geol2.com}")
+    private String mcpBaseUrl;
+
     public SecurityConfig(@Value("${app.cors.allowed-origin}") String allowedOrigin,
                            @Value("${app.cors.app-origin-patterns:}") String appOriginPatterns,
                            JwtService jwtService,
@@ -57,11 +60,19 @@ public class SecurityConfig {
                 .requestMatchers("/h2-console/**").permitAll()
                 // Error dispatch must be reachable, else parse/validation errors surface as 401.
                 .requestMatchers("/error").permitAll()
+                // MCP 커넥터(claude.ai)용 OAuth: 메타데이터·등록·로그인·토큰 발급은 로그인 전에 열려 있어야 함.
+                // /mcp 자체는 아래 anyRequest().authenticated() 로 JWT가 있어야 씀.
+                .requestMatchers("/.well-known/**", "/oauth/**").permitAll()
                 .anyRequest().authenticated()
             )
             // Return 401 instead of redirecting to a login page for unauthenticated API calls.
-            .exceptionHandling(ex -> ex.authenticationEntryPoint(
-                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+            // MCP 엔드포인트는 401에 WWW-Authenticate 로 OAuth 메타데이터 위치를 알려 줘야 커넥터가 로그인 흐름을 시작합니다.
+            .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {
+                if (req.getRequestURI().startsWith("/mcp")) {
+                    res.setHeader("WWW-Authenticate", "Bearer resource_metadata=\"" + mcpBaseUrl + "/.well-known/oauth-protected-resource\"");
+                }
+                res.sendError(HttpStatus.UNAUTHORIZED.value());
+            }))
             // Allow the H2 console (served in a frame) during development.
             .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
             .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
