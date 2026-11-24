@@ -35,9 +35,10 @@ public class ConversationService {
         this.messages = messages;
     }
 
-    public record ConversationView(Long id, String project, String title, Instant createdAt, Instant updatedAt) {
+    /** externalId: PC Claude Code 등 밖에서 가져온 대화의 세션 ID(모멘텀에서 시작한 대화는 null). */
+    public record ConversationView(Long id, String project, String title, Instant createdAt, Instant updatedAt, String externalId) {
         static ConversationView of(AiConversation c) {
-            return new ConversationView(c.getId(), c.getProject(), c.getTitle(), c.getCreatedAt(), c.getUpdatedAt());
+            return new ConversationView(c.getId(), c.getProject(), c.getTitle(), c.getCreatedAt(), c.getUpdatedAt(), c.getExternalId());
         }
     }
 
