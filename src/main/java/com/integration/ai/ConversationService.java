@@ -180,8 +180,11 @@ public class ConversationService {
             last = t.at() != null ? t.at() : Instant.now();
             added++;
         }
+        // 제목은 처음 가져올 때만 정합니다. 사용자가 이름을 바꾼 뒤 다시 동기화해도 덮어쓰지 않도록.
         String tt = title == null ? "" : title.replaceAll("\\s+", " ").strip();
-        if (!tt.isEmpty()) c.setTitle(tt.length() > 100 ? tt.substring(0, 100) : tt);
+        boolean fresh = have == 0 || NEW_TITLE.equals(c.getTitle());
+        if (!fresh) { /* 기존 제목 유지 */ }
+        else if (!tt.isEmpty()) c.setTitle(tt.length() > 100 ? tt.substring(0, 100) : tt);
         else if (NEW_TITLE.equals(c.getTitle()) && !list.isEmpty()) c.setTitle(titleFrom(list.get(0).question() == null ? "" : list.get(0).question(), 0));
         if (last != null) c.setUpdatedAt(last);
         return new ImportResult(ConversationView.of(c), added);
