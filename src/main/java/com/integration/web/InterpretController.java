@@ -34,19 +34,22 @@ public class InterpretController {
 
     private static final String SUGGEST = """
             너는 영어 대화를 돕는 코치야. 아래는 상대방이 나(사용자)에게 영어로 한 말이야(오래된 것 → 최근).
-            내가 상대에게 바로 말할 수 있는 자연스럽고 짧은 **영어 대답** 한 문장을 만들어.
-            규칙:
-            - 상대의 말을 따라 하거나 바꿔 말하지 마. 그 말에 대한 '나의 대답'이어야 해.
-            - 질문을 받았으면 답하고, 제안이면 수락하거나 되묻고, 정보면 맞장구치거나 이어서 물어봐.
-            - 대답은 반드시 영어로, 20단어 이하, 쉬운 단어로.
-            출력은 정확히 아래 두 줄 형식만(다른 말 없이):
+            1) 상대가 한 말의 요점을 한국어로 1~3개 짧게 정리해(각 30자 이하, 최근 말 중심).
+            2) 내가 상대에게 바로 말할 수 있는 자연스럽고 짧은 **영어 대답** 한 문장을 만들어.
+               - 상대의 말을 따라 하거나 바꿔 말하지 마. 그 말에 대한 '나의 대답'이어야 해.
+               - 질문이면 답하고, 제안이면 수락하거나 되묻고, 정보면 맞장구치거나 이어서 물어봐.
+               - 반드시 영어로, 20단어 이하, 쉬운 단어로.
+            출력은 정확히 아래 세 줄 형식만(다른 말 없이):
+            SUM: <요점1> | <요점2> | <요점3>
             EN: <영어 대답>
             KO: <그 대답의 한국어 뜻>""";
 
     public record Chunk(String original, String korean) {}
     public record Line(String original, String korean) {}
     public record SuggestRequest(List<Line> lines) {}
-    public record Suggestion(String english, String korean) {}
+    public record Suggestion(String english, String korean, List<String> summary) {
+        public Suggestion(String english, String korean) { this(english, korean, List.of()); }
+    }
 
     private final AiService ai;
     private final SttService stt;
@@ -108,7 +111,7 @@ public class InterpretController {
         User u = requireAllowed();
         List<Line> lines = req.lines() == null ? List.of() : req.lines();
         StringBuilder sb = new StringBuilder();
-        int from = Math.max(0, lines.size() - 8);
+        int from = Math.max(0, lines.size() - 30);
         for (Line l : lines.subList(from, lines.size())) {
             if (l == null || l.original() == null || l.original().isBlank()) continue;
             sb.append("- ").append(clip(l.original(), 400)).append('\n');
@@ -125,11 +128,15 @@ public class InterpretController {
     /** "EN: …" / "KO: …" 두 줄을 꺼냄. 형식이 어긋나도 영어(알파벳이 많은 줄)를 영어 자리에. */
     static Suggestion parseSuggestion(String out) {
         String en = "", ko = "";
+        java.util.List<String> sum = new java.util.ArrayList<>();
         java.util.List<String> rest = new java.util.ArrayList<>();
         for (String line : out.split("\\R+")) {
             String t = line.strip().replaceAll("^[*\\-\\s]+", "");
             if (t.isEmpty()) continue;
-            if (t.matches("(?i)^EN\\s*[:：].*")) en = t.replaceFirst("(?i)^EN\\s*[:：]\\s*", "");
+            if (t.matches("(?i)^SUM\\s*[:：].*")) {
+                for (String p : t.replaceFirst("(?i)^SUM\\s*[:：]\\s*", "").split("\\s*[|｜]\\s*"))
+                    if (!p.isBlank() && sum.size() < 3) sum.add(p.strip());
+            } else if (t.matches("(?i)^EN\\s*[:：].*")) en = t.replaceFirst("(?i)^EN\\s*[:：]\\s*", "");
             else if (t.matches("(?i)^KO\\s*[:：].*")) ko = t.replaceFirst("(?i)^KO\\s*[:：]\\s*", "");
             else rest.add(t);
         }
@@ -148,10 +155,10 @@ public class InterpretController {
                 String c = m.group().strip();
                 if (!c.matches("(?i)^(EN|KO)\\b.*") && c.length() > best.length()) best = c;
             }
-            if (best.isEmpty()) return new Suggestion("(영어 대답을 만들지 못했어요. 다시 눌러 보세요.)", "");
+            if (best.isEmpty()) return new Suggestion("(영어 대답을 만들지 못했어요. 다시 눌러 보세요.)", "", sum);
             en = best;
         }
-        return new Suggestion(en, ko.strip());
+        return new Suggestion(en, ko.strip(), sum);
     }
 
     static boolean isEnglish(String t) {

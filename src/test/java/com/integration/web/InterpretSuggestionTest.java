@@ -24,6 +24,13 @@ class InterpretSuggestionTest {
     }
 
     @Test
+    void 요점을_최대_3개까지_꺼낸다() {
+        var s = InterpretController.parseSuggestion("SUM: 회의를 3시로 옮기자 | 장소는 2층 | 자료 준비 | 넷째\nEN: Sure, see you at three.\nKO: 네, 3시에 봬요.");
+        assertEquals(java.util.List.of("회의를 3시로 옮기자", "장소는 2층", "자료 준비"), s.summary());
+        assertEquals("Sure, see you at three.", s.english());
+    }
+
+    @Test
     void 영어가_없으면_다시_누르라고_안내() {
         assertTrue(InterpretController.parseSuggestion("좋아요!").english().contains("다시"));
     }
