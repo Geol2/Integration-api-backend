@@ -188,6 +188,21 @@ public class AiController {
         return conversations.importTurns(currentUser.require().getId(), req.externalId(), req.title(), req.turns());
     }
 
+    // 안경 앱(Even 앱)이 켜져 있는지: 앱이 몇 초마다 신호를 보내고, 웹은 이걸 보고 오른쪽 안경 화면을 켜고 끕니다.
+    private final java.util.Map<Long, java.time.Instant> glassesSeen = new java.util.concurrent.ConcurrentHashMap<>();
+    public record GlassesOnline(boolean online, java.time.Instant lastSeen) {}
+
+    @PutMapping("/glasses/heartbeat")
+    public void glassesHeartbeat() {
+        glassesSeen.put(currentUser.require().getId(), java.time.Instant.now());
+    }
+
+    @GetMapping("/glasses/online")
+    public GlassesOnline glassesOnline() {
+        java.time.Instant t = glassesSeen.get(currentUser.require().getId());
+        return new GlassesOnline(t != null && t.isAfter(java.time.Instant.now().minusSeconds(30)), t);
+    }
+
     /** 지금 안경에 띄운 답. 없으면 빈 응답(null). */
     @GetMapping("/glasses")
     public GlassesPin glassesPin() {
