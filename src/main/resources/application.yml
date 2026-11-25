@@ -131,6 +131,11 @@ app:
       bin: ${AI_WHISPER_BIN:/opt/whisper/bin/whisper-cli}
       model: ${AI_WHISPER_MODEL:/opt/whisper/models/ggml-small.bin}
       threads: ${AI_WHISPER_THREADS:4}
+    # 통역용 클라우드 음성 인식(Deepgram). 키가 있으면 통역은 이걸로(1초 안팎), 없으면 서버 whisper.
+    # 키는 Jenkins 환경 변수 DEEPGRAM_API_KEY 로만 넣으세요(코드·깃에 두지 않기).
+    deepgram:
+      key: ${DEEPGRAM_API_KEY:}
+      model: ${DEEPGRAM_MODEL:nova-3}
 
   # ---- 서버-대-서버 내부 호출 키 (n8n → /internal/push) ----
   # n8n이 회의록 저장 성공/실패를 알려올 때 쓰는 공유 비밀. 비워두면 /internal/push가

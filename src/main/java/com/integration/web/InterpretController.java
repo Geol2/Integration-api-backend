@@ -46,11 +46,14 @@ public class InterpretController {
 
     private final AiService ai;
     private final SttService stt;
+    private final com.integration.ai.CloudSttService cloud;
     private final CurrentUserService currentUser;
 
-    public InterpretController(AiService ai, SttService stt, CurrentUserService currentUser) {
+    public InterpretController(AiService ai, SttService stt, com.integration.ai.CloudSttService cloud,
+                               CurrentUserService currentUser) {
         this.ai = ai;
         this.stt = stt;
+        this.cloud = cloud;
         this.currentUser = currentUser;
     }
 
@@ -59,8 +62,13 @@ public class InterpretController {
                        @RequestParam(value = "rate", defaultValue = "16000") int rate) throws IOException {
         User u = requireAllowed();
         byte[] pcm = audio.getBytes();
-        String en = stt.transcribe(pcm, rate, "en").strip();
-        log.info("통역 조각 {}초 → \"{}\"", String.format("%.1f", pcm.length / 2.0 / rate), en.length() > 80 ? en.substring(0, 80) : en);
+        long t0 = System.currentTimeMillis();
+        // 주인은 클라우드(빠름, 주인 요금). 다른 사용자는 주인 요금이 나가지 않게 서버 whisper.
+        boolean useCloud = cloud.isAvailable() && ai.isOwner(u.getEmail());
+        String en = (useCloud ? cloud.transcribe(pcm, rate, "en") : stt.transcribe(pcm, rate, "en")).strip();
+        long t1 = System.currentTimeMillis();
+        log.info("통역 조각 {}초 [{} {}ms] → \"{}\"", String.format("%.1f", pcm.length / 2.0 / rate),
+                useCloud ? "deepgram" : "whisper", t1 - t0, en.length() > 80 ? en.substring(0, 80) : en);
         if (en.isEmpty() || en.length() < 2) return new Chunk("", "");
         String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 400).strip();
         return new Chunk(en, ko);
@@ -90,7 +98,7 @@ public class InterpretController {
         User u = currentUser.require();
         if (!ai.isEnabledFor(u.getEmail()))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "통역을 쓰려면 ⋯ → Claude API 키에서 내 API 키를 등록해 주세요.");
-        if (!stt.isAvailable())
+        if (!stt.isAvailable() && !(cloud.isAvailable() && ai.isOwner(u.getEmail())))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "서버에 음성 인식이 설치되지 않았어요.");
         return u;
     }
