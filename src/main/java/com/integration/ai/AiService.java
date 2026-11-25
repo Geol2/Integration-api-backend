@@ -620,8 +620,7 @@ public class AiService {
             c = client;
         } else if (claudeCode != null && claudeCode.ready()) {
             try {
-                Answer a = claudeCode.ask(quickModel, "low", system, prompt, List.of(), List.of(), null, null, p -> {});
-                return a.detail() == null ? a.summary() : a.summary() + "\n" + a.detail();
+                return claudeCode.quick("haiku", system, prompt);
             } catch (ClaudeCodeEngine.Unavailable e) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 통역을 할 수 없어요: " + e.getMessage());
             }

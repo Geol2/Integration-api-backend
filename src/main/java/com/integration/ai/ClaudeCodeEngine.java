@@ -108,6 +108,22 @@ public class ClaudeCodeEngine {
     }
 
     /**
+     * 통역처럼 짧고 잦은 호출. 실패해도 구독을 쉬게 하지 않습니다(통역 한 조각 실패로
+     * 일반 질문까지 막히면 안 되므로). 단, 구독 한도는 진짜 한도라 그대로 둡니다.
+     */
+    public String quick(String model, String systemPrompt, String prompt) throws Unavailable {
+        Instant prevUntil = pausedUntil.get();
+        String prevReason = pausedReason.get();
+        try {
+            AiService.Answer a = ask(model, null, systemPrompt, prompt, List.of(), List.of(), null, null, p -> {});
+            return a.detail() == null ? a.summary() : a.summary() + "\n" + a.detail();
+        } catch (Unavailable e) {
+            if (!e.limit) { pausedUntil.set(prevUntil); pausedReason.set(prevReason); }
+            throw e;
+        }
+    }
+
+    /**
      * @param systemPrompt 규칙(안경용 답변 형식 등). 프로젝트 안내는 여기서 덧붙입니다.
      * @param projectDir   읽게 할 프로젝트 폴더. null이면 도구 없이 답만 합니다.
      */
@@ -128,13 +144,15 @@ public class ClaudeCodeEngine {
                     StandardCharsets.UTF_8);
             List<String> cmd = new ArrayList<>(List.of(path, "-p",
                     "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                    "--model", model, "--effort", effort,
+                    "--model", model,
                     "--system-prompt-file", promptFile.toString(),
                     "--restricted", "--strict-mcp-config",
                     "--tools", projectDir != null ? "Read,Grep,Glob" : "",
                     "--permission-mode", "dontAsk",
                     "--max-turns", String.valueOf(MAX_TURNS)));
             if (projectDir != null) cmd.addAll(List.of("--allowedTools", "Read", "Grep", "Glob"));
+            // effort를 지원하지 않는 모델(빠른 모델 등)도 있어서, 정했을 때만 넘깁니다.
+            if (effort != null && !effort.isBlank()) cmd.addAll(List.of("--effort", effort));
 
             ProcessBuilder pb = new ProcessBuilder(cmd).directory(work.toFile()).redirectErrorStream(false);
             Map<String, String> env = pb.environment();
