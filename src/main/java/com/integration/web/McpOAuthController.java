@@ -128,9 +128,7 @@ public class McpOAuthController {
             return html(HttpStatus.UNAUTHORIZED, page(p, "이메일 또는 비밀번호가 맞지 않아요.", true));
         }
         String canonical = users.findByEmail(email).map(u -> u.getEmail()).orElse(email);
-        if (!ai.isEnabledFor(canonical)) {
-            return html(HttpStatus.FORBIDDEN, page(p, "이 계정은 Claude 기능을 쓸 수 없어요.", true));
-        }
+        // 커넥터는 대화를 그 사람 계정에 저장만 함(서버에서 Claude 호출 없음) → 가입한 사용자면 누구나 연결 가능
         String code = jwt.issueTyped(canonical, TYP_CODE, CODE_TTL, Map.of(
                 "cid", p.get("client_id"), "ru", p.get("redirect_uri"), "cc", p.get("code_challenge")));
         UriComponentsBuilder to = UriComponentsBuilder.fromUriString(p.get("redirect_uri")).queryParam("code", code);
@@ -173,7 +171,7 @@ public class McpOAuthController {
             } else {
                 return oauthError("unsupported_grant_type", grant);
             }
-            if (users.findByEmail(email).isEmpty() || !ai.isEnabledFor(email)) return oauthError("invalid_grant", "계정을 쓸 수 없어요.");
+            if (users.findByEmail(email).isEmpty()) return oauthError("invalid_grant", "계정을 쓸 수 없어요.");
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("access_token", jwt.generateToken(email, ACCESS_TTL));
             r.put("token_type", "Bearer");

@@ -98,7 +98,7 @@ public class McpController {
         if (!"save_conversation".equals(name)) return toolText("모르는 도구: " + name, true);
 
         User user = currentUser.require();
-        if (!ai.isEnabledFor(user.getEmail())) return toolText("이 계정은 Claude 기능을 쓸 수 없어요.", true);
+        // 저장만 하고 서버에서 Claude를 부르지 않으므로 비용이 없어요 → 로그인한 사용자면 누구나(자기 계정에 저장).
 
         List<ConversationService.ImportedTurn> turns = new ArrayList<>();
         if (args.get("turns") instanceof List<?> list) {

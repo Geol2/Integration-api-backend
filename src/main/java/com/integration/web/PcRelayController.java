@@ -179,9 +179,8 @@ public class PcRelayController {
     }
 
     private User requireAllowed() {
-        User user = currentUser.require();
-        if (!ai.isEnabledFor(user.getEmail()))
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 계정은 Claude 기능을 쓸 수 없어요.");
-        return user;
+        // PC 중계는 각자 자기 PC의 Claude Code(그 사람 구독)로 실행 — 서버 비용이 없어 로그인한 사용자면 누구나.
+        // 질문·PC 목록은 계정별로 나뉘어 있어 다른 사람 PC로는 못 보냄.
+        return currentUser.require();
     }
 }

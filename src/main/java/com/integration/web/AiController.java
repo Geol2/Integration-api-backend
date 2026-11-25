@@ -150,17 +150,17 @@ public class AiController {
     /** 가장 최근 질문. 없으면 빈 응답(null). */
     @GetMapping("/jobs/latest")
     public AiJobService.JobView latestJob() {
-        return jobs.latest(requireAllowed().getId());
+        return jobs.latest(currentUser.require().getId());
     }
 
     @PostMapping("/conversation/reset")
     public void resetConversation() {
-        jobs.reset(requireAllowed().getId());
+        jobs.reset(currentUser.require().getId());
     }
 
     @GetMapping("/jobs/{id}")
     public AiJobService.JobView job(@PathVariable String id) {
-        return jobs.get(requireAllowed().getId(), id);
+        return jobs.get(currentUser.require().getId(), id);
     }
 
     // ---------- 대화 ----------
@@ -170,12 +170,12 @@ public class AiController {
 
     @GetMapping("/conversations")
     public List<ConversationService.ConversationView> listConversations() {
-        return conversations.list(requireAllowed().getId());
+        return conversations.list(currentUser.require().getId());
     }
 
     @PostMapping("/conversations")
     public ConversationService.ConversationView createConversation(@RequestBody CreateConversationRequest req) {
-        return conversations.create(requireAllowed().getId(), req.project());
+        return conversations.create(currentUser.require().getId(), req.project());
     }
 
     /** PC Claude Code 세션 가져오기(동기화 스크립트용). 같은 externalId면 새로 생긴 질문만 붙습니다. */
@@ -185,18 +185,18 @@ public class AiController {
     public ConversationService.ImportResult importConversation(@RequestBody ImportConversationRequest req) {
         if (req.turns() != null && req.turns().size() > 2000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "한 번에 2000개까지 보낼 수 있어요.");
-        return conversations.importTurns(requireAllowed().getId(), req.externalId(), req.title(), req.turns());
+        return conversations.importTurns(currentUser.require().getId(), req.externalId(), req.title(), req.turns());
     }
 
     /** 지금 안경에 띄운 답. 없으면 빈 응답(null). */
     @GetMapping("/glasses")
     public GlassesPin glassesPin() {
-        return glassesPins.get(requireAllowed().getId());
+        return glassesPins.get(currentUser.require().getId());
     }
 
     @PutMapping("/glasses")
     public GlassesPin pinToGlasses(@RequestBody GlassesPinRequest req) {
-        Long uid = requireAllowed().getId();
+        Long uid = currentUser.require().getId();
         if (req.conversationId() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "conversationId가 필요합니다.");
         conversations.get(uid, req.conversationId()); // 내 대화인지 확인(아니면 404)
         GlassesPin p = new GlassesPin(req.conversationId(), req.turnId(), java.time.Instant.now());
@@ -206,22 +206,22 @@ public class AiController {
 
     @DeleteMapping("/glasses")
     public void unpinGlasses() {
-        glassesPins.remove(requireAllowed().getId());
+        glassesPins.remove(currentUser.require().getId());
     }
 
     @GetMapping("/conversations/{id}")
     public ConversationService.Detail conversation(@PathVariable Long id) {
-        return conversations.detail(requireAllowed().getId(), id);
+        return conversations.detail(currentUser.require().getId(), id);
     }
 
     @PatchMapping("/conversations/{id}")
     public ConversationService.ConversationView renameConversation(@PathVariable Long id, @RequestBody RenameConversationRequest req) {
-        return conversations.rename(requireAllowed().getId(), id, req.title());
+        return conversations.rename(currentUser.require().getId(), id, req.title());
     }
 
     @DeleteMapping("/conversations/{id}")
     public void deleteConversation(@PathVariable Long id) {
-        conversations.delete(requireAllowed().getId(), id);
+        conversations.delete(currentUser.require().getId(), id);
     }
 
     // ---------- 프로젝트 ----------
@@ -267,6 +267,9 @@ public class AiController {
         projects.delete(name);
     }
 
+    // 대화 목록·안경 띄우기·진행 상황은 저장된 데이터만 다루고 Claude를 부르지 않아 비용이 없으므로 로그인한 사용자면 누구나.
+    // (실제로 Claude에게 묻는 /ask·/jobs 시작은 AiService 가 주인 or 내 키 를 확인)
+
     // ---------- 공통 ----------
 
     private User requireOwner() {
@@ -280,7 +283,7 @@ public class AiController {
     private User requireAllowed() {
         User user = currentUser.require();
         if (!ai.isEnabledFor(user.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 계정은 Claude 기능을 쓸 수 없어요.");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Claude를 쓰려면 ⋯ → Claude API 키에서 내 Anthropic API 키를 등록해 주세요.");
         }
         return user;
     }
