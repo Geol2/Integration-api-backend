@@ -29,8 +29,11 @@ public class McpController {
     private final ConversationService conversations;
     private final CurrentUserService currentUser;
     private final AiService ai;
+    private final com.integration.repository.NoteRepository notes;
 
-    public McpController(ConversationService conversations, CurrentUserService currentUser, AiService ai) {
+    public McpController(ConversationService conversations, CurrentUserService currentUser, AiService ai,
+                         com.integration.repository.NoteRepository notes) {
+        this.notes = notes;
         this.conversations = conversations;
         this.currentUser = currentUser;
         this.ai = ai;
@@ -51,10 +54,10 @@ public class McpController {
                             "protocolVersion", VERSIONS.contains(v) ? v : "2025-06-18",
                             "capabilities", Map.of("tools", Map.of()),
                             "serverInfo", Map.of("name", "momentum", "version", "1.0.0"),
-                            "instructions", "사용자의 모멘텀 앱(momentum.geol2.com)에 대화를 저장합니다. 사용자가 '모멘텀에 저장해줘'라고 하면 save_conversation 을 쓰세요.");
+                            "instructions", "사용자의 모멘텀 앱(momentum.geol2.com)과 연결돼요. '이 대화 모멘텀에 저장해줘' → save_conversation, '모멘텀 메모에 적어줘' → save_memo, 예전 모멘텀 대화 찾기·읽기 → list_conversations · read_conversation.");
                 }
                 case "ping" -> Map.of();
-                case "tools/list" -> Map.of("tools", List.of(SAVE_TOOL));
+                case "tools/list" -> Map.of("tools", List.of(SAVE_TOOL, MEMO_TOOL, LIST_TOOL, READ_TOOL));
                 case "tools/call" -> callTool(params);
                 default -> null;
             };
@@ -91,11 +94,39 @@ public class McpController {
                             "conversation_id", Map.of("type", "string", "description", "이전에 저장할 때 받은 id(이어 저장할 때만)")),
                     "required", List.of("title", "turns")));
 
+    private static final Map<String, Object> MEMO_TOOL = Map.of(
+            "name", "save_memo",
+            "description", "사용자의 모멘텀 앱 '메모'(화면에 붙는 포스트잇)에 짧은 글을 저장합니다. 사용자가 \"모멘텀 메모에 저장해줘/적어줘\"라고 하면 쓰세요. 대화 전체가 아니라 메모할 내용만 넣으세요.",
+            "inputSchema", Map.of("type", "object",
+                    "properties", Map.of("text", Map.of("type", "string", "description", "메모 내용(2000자 이하)")),
+                    "required", List.of("text")));
+
+    private static final Map<String, Object> LIST_TOOL = Map.of(
+            "name", "list_conversations",
+            "description", "사용자의 모멘텀에 저장된 대화 목록(최근 순)을 봅니다. 예전에 모멘텀에서 나눈 대화를 찾을 때 쓰세요.",
+            "inputSchema", Map.of("type", "object",
+                    "properties", Map.of("limit", Map.of("type", "integer", "description", "몇 개(기본 20, 최대 50)"),
+                            "query", Map.of("type", "string", "description", "제목에 들어간 말로 거르기(선택)"))));
+
+    private static final Map<String, Object> READ_TOOL = Map.of(
+            "name", "read_conversation",
+            "description", "모멘텀에 저장된 대화 하나의 질문·답을 읽습니다(list_conversations 의 id). 최근 질문부터 limit개.",
+            "inputSchema", Map.of("type", "object",
+                    "properties", Map.of("id", Map.of("type", "integer"),
+                            "limit", Map.of("type", "integer", "description", "최근 몇 개 질문(기본 20)")),
+                    "required", List.of("id")));
+
     private Map<String, Object> callTool(Map<String, Object> params) {
         String name = String.valueOf(params.get("name"));
         @SuppressWarnings("unchecked")
         Map<String, Object> args = params.get("arguments") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
-        if (!"save_conversation".equals(name)) return toolText("모르는 도구: " + name, true);
+        switch (name) {
+            case "save_memo": return saveMemo(args);
+            case "list_conversations": return listConversations(args);
+            case "read_conversation": return readConversation(args);
+            case "save_conversation": break;
+            default: return toolText("모르는 도구: " + name, true);
+        }
 
         User user = currentUser.require();
         // 저장만 하고 서버에서 Claude를 부르지 않으므로 비용이 없어요 → 로그인한 사용자면 누구나(자기 계정에 저장).
@@ -118,6 +149,61 @@ public class McpController {
         ConversationService.ImportResult r = conversations.importTurns(user.getId(), id, title, turns);
         return toolText("모멘텀에 저장했어요 — 새 질문 " + r.added() + "개 (전체 " + turns.size() + "개). conversation_id: " + id
                 + "\n이 대화를 나중에 다시 저장할 땐 이 conversation_id 를 넘겨 주세요. 보기: https://momentum.geol2.com/g2.html", false);
+    }
+
+    private Map<String, Object> saveMemo(Map<String, Object> args) {
+        User user = currentUser.require();
+        String text = args.get("text") == null ? "" : String.valueOf(args.get("text")).strip();
+        if (text.isEmpty()) return toolText("메모할 내용이 없어요.", true);
+        if (text.length() > 2000) text = text.substring(0, 2000);
+        com.integration.domain.Note n = new com.integration.domain.Note();
+        n.setUserId(user.getId());
+        n.setText(text);
+        // 화면 왼쪽 위쯤에 살짝 기울여 붙임(메인 화면에서 끌어서 옮길 수 있어요)
+        n.setX(40 + Math.random() * 120);
+        n.setY(140 + Math.random() * 120);
+        n.setRot((Math.random() - 0.5) * 6);
+        n.setWidth(240);
+        n.setHeight(Math.min(320, 90 + text.length() / 3.0));
+        n.setDateKey(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).toString());
+        n.setTs(System.currentTimeMillis());
+        notes.save(n);
+        return toolText("모멘텀 메모에 저장했어요. 메인 화면(momentum.geol2.com)과 안경 '메모'에서 볼 수 있어요.", false);
+    }
+
+    private Map<String, Object> listConversations(Map<String, Object> args) {
+        User user = currentUser.require();
+        int limit = Math.max(1, Math.min(50, args.get("limit") instanceof Number n ? n.intValue() : 20));
+        String q = args.get("query") == null ? "" : String.valueOf(args.get("query")).strip().toLowerCase(java.util.Locale.ROOT);
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (ConversationService.ConversationView c : conversations.list(user.getId())) {
+            if (!q.isEmpty() && (c.title() == null || !c.title().toLowerCase(java.util.Locale.ROOT).contains(q))) continue;
+            sb.append("- id ").append(c.id()).append(" · ").append(c.title()).append(" · ").append(c.updatedAt()).append('\n');
+            if (++count >= limit) break;
+        }
+        return toolText(count == 0 ? "저장된 대화가 없어요." : sb.toString(), false);
+    }
+
+    private Map<String, Object> readConversation(Map<String, Object> args) {
+        User user = currentUser.require();
+        if (!(args.get("id") instanceof Number idn)) return toolText("id 가 필요해요.", true);
+        int limit = Math.max(1, Math.min(50, args.get("limit") instanceof Number n ? n.intValue() : 20));
+        ConversationService.Detail d;
+        try {
+            d = conversations.detail(user.getId(), idn.longValue());
+        } catch (RuntimeException e) {
+            return toolText("그 대화를 찾을 수 없어요.", true);
+        }
+        List<ConversationService.TurnView> turns = d.turns();
+        StringBuilder sb = new StringBuilder("대화: ").append(d.conversation().title()).append('\n');
+        for (ConversationService.TurnView t : turns.subList(Math.max(0, turns.size() - limit), turns.size())) {
+            sb.append("\nQ: ").append(t.question()).append("\nA: ").append(t.answer());
+            if (t.detail() != null && !t.detail().isBlank()) sb.append('\n').append(t.detail().length() > 2000 ? t.detail().substring(0, 2000) + "…" : t.detail());
+            sb.append('\n');
+        }
+        String out = sb.length() > 60000 ? sb.substring(sb.length() - 60000) : sb.toString();
+        return toolText(out, false);
     }
 
     private static Map<String, Object> toolText(String text, boolean error) {
