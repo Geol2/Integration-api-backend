@@ -95,6 +95,12 @@ public class JwtService {
         }
     }
 
+    /** 기기용 토큰이면 그 고유 id(jti), 아니면 null. 서명이 틀리거나 만료면 JwtException. */
+    public String deviceJti(String token) {
+        Claims c = claims(token);
+        return "device".equals(c.get("typ", String.class)) ? c.get("jti", String.class) : null;
+    }
+
     /** 토큰 발급 시각(초 단위). */
     public Instant issuedAt(String token) {
         return claims(token).getIssuedAt().toInstant();

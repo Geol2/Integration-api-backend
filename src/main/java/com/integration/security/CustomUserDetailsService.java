@@ -13,9 +13,24 @@ import java.util.Collections;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository users;
+    private final com.integration.repository.DeviceTokenRepository devices;
 
-    public CustomUserDetailsService(UserRepository users) {
+    public CustomUserDetailsService(UserRepository users, com.integration.repository.DeviceTokenRepository devices) {
         this.users = users;
+        this.devices = devices;
+    }
+
+    /** 기기용 토큰 확인: 끊기지 않은 토큰이면 그 사용자 이메일, 아니면 UsernameNotFoundException. 마지막 사용 시각도 갱신(1분 간격). */
+    public String verifyDevice(String jti) {
+        var d = devices.findByJti(jti).filter(x -> !x.isRevoked())
+                .orElseThrow(() -> new UsernameNotFoundException("끊긴 기기 토큰"));
+        java.time.Instant now = java.time.Instant.now();
+        if (d.getLastUsedAt() == null || d.getLastUsedAt().isBefore(now.minusSeconds(60))) {
+            d.setLastUsedAt(now);
+            devices.save(d);
+        }
+        return users.findById(d.getUserId()).map(u -> u.getEmail())
+                .orElseThrow(() -> new UsernameNotFoundException("사용자 없음"));
     }
 
     /** 이 토큰이 마지막 비밀번호 변경보다 먼저 발급됐는지(초 단위 비교). */

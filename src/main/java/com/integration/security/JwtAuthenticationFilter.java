@@ -43,10 +43,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             String token = header.substring(7);
             try {
-                String email = jwtService.extractEmail(token);
-                // 비밀번호를 바꾸기 전에 받은 토큰이면(털린 토큰 포함) 거부 → 그 기기는 다시 로그인해야 함
-                if (userDetailsService.issuedBeforePasswordChange(email, jwtService.issuedAt(token))) {
-                    throw new UsernameNotFoundException("비밀번호 변경 전 토큰");
+                // 기기용 토큰(pc-agent 등): DB에서 끊기지 않았는지 확인. 비밀번호를 바꿔도 유지됨.
+                String deviceJti = jwtService.deviceJti(token);
+                String email;
+                if (deviceJti != null) {
+                    email = userDetailsService.verifyDevice(deviceJti);
+                } else {
+                    email = jwtService.extractEmail(token);
+                    // 비밀번호를 바꾸기 전에 받은 토큰이면(털린 토큰 포함) 거부 → 그 기기는 다시 로그인해야 함
+                    if (userDetailsService.issuedBeforePasswordChange(email, jwtService.issuedAt(token))) {
+                        throw new UsernameNotFoundException("비밀번호 변경 전 토큰");
+                    }
                 }
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
                 var authToken = new UsernamePasswordAuthenticationToken(
@@ -56,7 +63,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 // 슬라이딩 만료: 수명이 절반 이하로 남았으면 새 토큰을 헤더로 돌려줍니다.
                 // 프론트(api.js)가 이 헤더를 보고 저장된 토큰을 조용히 교체합니다.
-                if (jwtService.shouldRenew(token)) {
+                if (deviceJti == null && jwtService.shouldRenew(token)) {
                     response.setHeader(RENEWED_TOKEN_HEADER, jwtService.generateToken(email));
                 }
             } catch (JwtException | IllegalArgumentException | UsernameNotFoundException e) {
