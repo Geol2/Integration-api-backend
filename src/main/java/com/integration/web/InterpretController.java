@@ -34,7 +34,9 @@ public class InterpretController {
 
     private static final String SUGGEST = """
             너는 영어 대화를 돕는 코치야. 아래는 상대방이 나(사용자)에게 영어로 한 말이야(오래된 것 → 최근).
-            1) 상대가 한 말의 요점을 한국어로 1~3개 짧게 정리해(각 30자 이하, 최근 말 중심).
+            1) 상대가 한 말 전체를 읽고 요점을 한국어로 1~3개 짧게 정리해(각 30자 이하).
+               - 핵심 주장·질문·요청·숫자/날짜를 우선. 말이 짧거나 끊겨 있어도 들은 내용에서 최대한 뽑아.
+               - "요점 없음" 같은 말은 쓰지 말고, 정말 내용이 없을 때만 들은 말을 한 줄로 요약해.
             2) 내가 상대에게 바로 말할 수 있는 자연스럽고 짧은 **영어 대답** 한 문장을 만들어.
                - 상대의 말을 따라 하거나 바꿔 말하지 마. 그 말에 대한 '나의 대답'이어야 해.
                - 질문이면 답하고, 제안이면 수락하거나 되묻고, 정보면 맞장구치거나 이어서 물어봐.
@@ -111,7 +113,7 @@ public class InterpretController {
         User u = requireAllowed();
         List<Line> lines = req.lines() == null ? List.of() : req.lines();
         StringBuilder sb = new StringBuilder();
-        int from = Math.max(0, lines.size() - 30);
+        int from = Math.max(0, lines.size() - 60);
         for (Line l : lines.subList(from, lines.size())) {
             if (l == null || l.original() == null || l.original().isBlank()) continue;
             sb.append("- ").append(clip(l.original(), 400)).append('\n');
