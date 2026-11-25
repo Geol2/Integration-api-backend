@@ -591,6 +591,51 @@ public class AiService {
         return recent;
     }
 
+    // ---------- 빠른 한 번 호출 (통역·답 추천) ----------
+    // 문장 하나를 옮기거나 대답 한 줄을 추천하는 짧은 일이라 빠르고 싼 모델(기본 Haiku)을 씁니다.
+    // 주인: 서버 API 키 → 없으면 구독(Claude Code). 다른 사용자: 자기 키로만(주인 쪽으로 넘어가지 않음).
+    private String quickModel = "claude-haiku-5-5";
+    private int quickDailyLimit = 3000;
+    private final Map<Long, DailyCount> quickUsage = new ConcurrentHashMap<>();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setQuickModel(@Value("${app.ai.quick-model:claude-haiku-5-5}") String m) { if (m != null && !m.isBlank()) this.quickModel = m; }
+
+    public String quick(Long userId, String email, String system, String prompt, int maxTokens) {
+        LocalDate today = LocalDate.now(zone);
+        DailyCount n = quickUsage.compute(userId, (id, c) ->
+                c == null || !c.day().equals(today) ? new DailyCount(today, 1) : new DailyCount(today, c.count() + 1));
+        if (n.count() > quickDailyLimit) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "오늘 통역 횟수를 다 썼어요.");
+
+        AnthropicClient c;
+        boolean byok = !isOwner(email);
+        if (byok) {
+            String key = userKeys == null ? null : userKeys.keyFor(userId).orElse(null);
+            if (key == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "통역을 쓰려면 ⋯ → Claude API 키에서 내 API 키를 등록해 주세요.");
+            c = clientFor(key);
+        } else if (client != null) {
+            c = client;
+        } else if (claudeCode != null && claudeCode.ready()) {
+            try {
+                Answer a = claudeCode.ask(quickModel, "low", system, prompt, List.of(), List.of(), null, null, p -> {});
+                return a.detail() == null ? a.summary() : a.summary() + "\n" + a.detail();
+            } catch (ClaudeCodeEngine.Unavailable e) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 통역을 할 수 없어요: " + e.getMessage());
+            }
+        } else {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
+        }
+        MessageCreateParams.Builder params = MessageCreateParams.builder()
+                .model(quickModel)
+                .maxTokens((long) maxTokens)
+                .systemOfBetaTextBlockParams(List.of(BetaTextBlockParam.builder().text(system)
+                        .cacheControl(BetaCacheControlEphemeral.builder().build()).build()))
+                .addUserMessage(prompt);
+        BetaMessage res = call(c, byok, params);
+        return res.content().stream().flatMap(b -> b.text().stream()).map(t -> t.text())
+                .collect(Collectors.joining("\n")).strip();
+    }
+
     /** 사용자 키로 답할 때: 그 사람 하루 횟수만 셉니다(서버 전체 한도·주인 한도와 무관). */
     private void takeUserQuota(Long userId) {
         LocalDate today = LocalDate.now(zone);

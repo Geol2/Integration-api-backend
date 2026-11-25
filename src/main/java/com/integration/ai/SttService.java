@@ -68,6 +68,12 @@ public class SttService {
 
     /** @return 받아 적은 글. 못 알아들었으면 빈 문자열. */
     public String transcribe(byte[] pcm, int sampleRate) {
+        return transcribe(pcm, sampleRate, "ko");
+    }
+
+    /** lang: whisper 언어 코드(ko, en, auto). 한국어일 때만 한국어 힌트 문장을 붙여요. */
+    public String transcribe(byte[] pcm, int sampleRate, String lang) {
+        String language = lang == null || !lang.matches("[a-z]{2}|auto") ? "ko" : lang;
         if (!isAvailable()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "서버에 음성 인식이 설치되지 않았어요.");
         }
@@ -92,9 +98,9 @@ public class SttService {
             Path outBase = dir.resolve("out");
             List<String> cmd = new ArrayList<>(List.of(
                     bin.toString(), "-m", model.toString(), "-f", wav.toString(),
-                    "-l", "ko", "-t", String.valueOf(threads),
-                    "--prompt", PROMPT,
+                    "-l", language, "-t", String.valueOf(threads),
                     "-nt", "-np", "-otxt", "-of", outBase.toString()));
+            if ("ko".equals(language)) { cmd.add("--prompt"); cmd.add(PROMPT); }
             Process p = new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(dir.resolve("log.txt").toFile()).start();
             if (!p.waitFor(90, TimeUnit.SECONDS)) {
                 p.destroyForcibly();
