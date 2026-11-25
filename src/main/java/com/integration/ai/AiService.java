@@ -638,8 +638,13 @@ public class AiService {
                         .cacheControl(BetaCacheControlEphemeral.builder().build()).build()))
                 .addUserMessage(prompt);
         BetaMessage res = call(c, byok, params);
-        return res.content().stream().flatMap(b -> b.text().stream()).map(t -> t.text())
+        String out = res.content().stream().flatMap(b -> b.text().stream()).map(t -> t.text())
                 .collect(Collectors.joining("\n")).strip();
+        if (out.isEmpty()) {
+            // 글자 없이 끝나면 왜 그런지 남김(토큰이 모자라 생각만 하다 끝났는지 등)
+            log.warn("빠른 응답이 비었어요: stop_reason={}, 블록 {}개", res.stopReason(), res.content().size());
+        }
+        return out;
     }
 
     /** 사용자 키로 답할 때: 그 사람 하루 횟수만 셉니다(서버 전체 한도·주인 한도와 무관). */

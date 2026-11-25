@@ -74,7 +74,7 @@ public class InterpretController {
         log.info("통역 조각 {}초 [{} {}ms] → \"{}\"", String.format("%.1f", pcm.length / 2.0 / rate),
                 useCloud ? "deepgram" : "whisper", t1 - t0, en.length() > 80 ? en.substring(0, 80) : en);
         if (en.isEmpty() || en.length() < 2) return new Chunk("", "");
-        String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 400).strip();
+        String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 1024).strip();
         return new Chunk(en, ko);
     }
 
@@ -98,7 +98,7 @@ public class InterpretController {
         String en = req == null || req.text() == null ? "" : clip(req.text().strip(), 600);
         if (en.length() < 2) return new Chunk("", "");
         long t0 = System.currentTimeMillis();
-        String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 400).strip();
+        String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 1024).strip();
         log.info("통역 번역 {}ms: \"{}\"", System.currentTimeMillis() - t0, en.length() > 80 ? en.substring(0, 80) : en);
         return new Chunk(en, ko);
     }
@@ -115,7 +115,7 @@ public class InterpretController {
         }
         if (sb.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "아직 들은 말이 없어요.");
         long t0 = System.currentTimeMillis();
-        String out = ai.quick(u.getId(), u.getEmail(), SUGGEST, sb.toString(), 200).strip();
+        String out = ai.quick(u.getId(), u.getEmail(), SUGGEST, sb.toString(), 1024).strip();
         Suggestion sg = parseSuggestion(out);
         log.info("통역 추천 {}ms ({}줄): \"{}\" ← 원문 \"{}\"", System.currentTimeMillis() - t0, lines.size(), sg.english(),
                 out.replaceAll("\\s+", " ").length() > 200 ? out.replaceAll("\\s+", " ").substring(0, 200) : out.replaceAll("\\s+", " "));
