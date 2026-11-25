@@ -114,8 +114,11 @@ public class InterpretController {
             sb.append("- ").append(clip(l.original(), 400)).append('\n');
         }
         if (sb.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "아직 들은 말이 없어요.");
+        long t0 = System.currentTimeMillis();
         String out = ai.quick(u.getId(), u.getEmail(), SUGGEST, sb.toString(), 200).strip();
-        return parseSuggestion(out);
+        Suggestion sg = parseSuggestion(out);
+        log.info("통역 추천 {}ms ({}줄): \"{}\"", System.currentTimeMillis() - t0, lines.size(), sg.english());
+        return sg;
     }
 
     /** "EN: …" / "KO: …" 두 줄을 꺼냄. 형식이 어긋나도 영어(알파벳이 많은 줄)를 영어 자리에. */
