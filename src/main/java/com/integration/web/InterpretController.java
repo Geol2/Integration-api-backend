@@ -25,6 +25,8 @@ import java.util.List;
 @RequestMapping("/api/ai/interpret")
 public class InterpretController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(InterpretController.class);
+
     private static final String TRANSLATE = """
             너는 동시통역사야. 사용자가 준 영어 문장을 자연스러운 한국어 구어체로 옮겨.
             번역문만 출력해(따옴표·설명·원문 없이). 음성 인식이라 틀린 단어가 있으면 문맥에 맞게 추정해.
@@ -56,7 +58,9 @@ public class InterpretController {
     public Chunk chunk(@RequestParam("audio") MultipartFile audio,
                        @RequestParam(value = "rate", defaultValue = "16000") int rate) throws IOException {
         User u = requireAllowed();
-        String en = stt.transcribe(audio.getBytes(), rate, "en").strip();
+        byte[] pcm = audio.getBytes();
+        String en = stt.transcribe(pcm, rate, "en").strip();
+        log.info("통역 조각 {}초 → \"{}\"", String.format("%.1f", pcm.length / 2.0 / rate), en.length() > 80 ? en.substring(0, 80) : en);
         if (en.isEmpty() || en.length() < 2) return new Chunk("", "");
         String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 400).strip();
         return new Chunk(en, ko);

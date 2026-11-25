@@ -43,7 +43,8 @@ public class SttService {
     /** 조용한 녹음에 whisper가 지어내는 대표 문장들 — 이것만 나오면 못 알아들은 것으로 봅니다. */
     private static final Set<String> HALLUCINATIONS = Set.of(
             "감사합니다", "감사합니다.", "시청해주셔서 감사합니다.", "시청해 주셔서 감사합니다.",
-            "구독과 좋아요 부탁드립니다.", "MBC 뉴스 이덕영입니다.", "끝.", "음.", "네.");
+            "구독과 좋아요 부탁드립니다.", "MBC 뉴스 이덕영입니다.", "끝.", "음.", "네.",
+            "Thank you.", "Thank you", "you", "You", "Bye.", "Thanks for watching!", "Thank you for watching.");
 
     private final Path bin;
     private final Path model;
@@ -85,7 +86,10 @@ public class SttService {
         if (seconds > MAX_SECONDS + 1) {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "한 번에 " + MAX_SECONDS + "초까지 말할 수 있어요.");
         }
-        if (isSilent(pcm)) return "";
+        // 통역(en)은 앱이 이미 말소리만 골라 보내고, 멀리서 들린 작은 목소리도 받아야 해서 더 너그럽게
+        if (isSilent(pcm, "ko".equals(language) ? 60 : 20)) return "";
+        // 작게 들어온 소리는 키워서 넘깁니다(안경 마이크로 상대 목소리를 받으면 아주 작아요).
+        pcm = normalize(pcm);
 
         boolean acquired = false;
         Path dir = null;
@@ -140,12 +144,30 @@ public class SttService {
     }
 
     /** 거의 소리가 없으면(평균 진폭이 아주 작으면) whisper에 넘기지 않습니다. */
-    static boolean isSilent(byte[] pcm) {
+    static boolean isSilent(byte[] pcm) { return isSilent(pcm, 60); }
+
+    /** 평균 진폭이 min보다 작으면 조용한 것으로 봄(int16 최대 32767 기준, 60 ≈ -55dB). */
+    static boolean isSilent(byte[] pcm, int min) {
         ByteBuffer b = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN);
         long sum = 0;
         int n = pcm.length / 2;
         for (int i = 0; i < n; i++) sum += Math.abs(b.getShort(i * 2));
-        return n == 0 || sum / n < 60;   // int16 최대 32767 기준, 60 ≈ -55dB
+        return n == 0 || sum / n < min;
+    }
+
+    /** 가장 큰 소리가 약 -4dB(20000)이 되게 키웁니다. 최대 16배, 이미 크면 그대로. */
+    static byte[] normalize(byte[] pcm) {
+        ByteBuffer b = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN);
+        int n = pcm.length / 2, peak = 0;
+        for (int i = 0; i < n; i++) peak = Math.max(peak, Math.abs((int) b.getShort(i * 2)));
+        if (peak == 0 || peak >= 16000) return pcm;
+        double gain = Math.min(16.0, 20000.0 / peak);
+        ByteBuffer out = ByteBuffer.allocate(n * 2).order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 0; i < n; i++) {
+            int v = (int) Math.round(b.getShort(i * 2) * gain);
+            out.putShort((short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, v)));
+        }
+        return out.array();
     }
 
     static byte[] wav(byte[] pcm, int sampleRate) {
