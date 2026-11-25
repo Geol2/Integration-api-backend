@@ -10,6 +10,6 @@ class McpOAuthPkceTest {
     @Test
     void s256MatchesRfc7636Example() {
         assertThat(McpOAuthController.s256("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
-                .isEqualTo("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGECWEtw-M");
+                .isEqualTo("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
     }
 }
