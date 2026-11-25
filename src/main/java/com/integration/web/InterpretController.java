@@ -33,11 +33,15 @@ public class InterpretController {
             의미 없는 잡음이면 빈 줄만 출력해.""";
 
     private static final String SUGGEST = """
-            너는 영어 대화를 돕는 코치야. 아래는 상대방이 방금까지 영어로 한 말이야(오래된 것 → 최근).
-            사용자가 바로 말할 수 있는 자연스럽고 짧은 영어 대답 한 문장을 추천해.
-            정확히 두 줄로만 출력해:
-            1줄: 영어 대답(20단어 이하)
-            2줄: 그 대답의 한국어 뜻""";
+            너는 영어 대화를 돕는 코치야. 아래는 상대방이 나(사용자)에게 영어로 한 말이야(오래된 것 → 최근).
+            내가 상대에게 바로 말할 수 있는 자연스럽고 짧은 **영어 대답** 한 문장을 만들어.
+            규칙:
+            - 상대의 말을 따라 하거나 바꿔 말하지 마. 그 말에 대한 '나의 대답'이어야 해.
+            - 질문을 받았으면 답하고, 제안이면 수락하거나 되묻고, 정보면 맞장구치거나 이어서 물어봐.
+            - 대답은 반드시 영어로, 20단어 이하, 쉬운 단어로.
+            출력은 정확히 아래 두 줄 형식만(다른 말 없이):
+            EN: <영어 대답>
+            KO: <그 대답의 한국어 뜻>""";
 
     public record Chunk(String original, String korean) {}
     public record Line(String original, String korean) {}
@@ -111,10 +115,35 @@ public class InterpretController {
         }
         if (sb.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "아직 들은 말이 없어요.");
         String out = ai.quick(u.getId(), u.getEmail(), SUGGEST, sb.toString(), 200).strip();
-        String[] parts = out.split("\\R+", 2);
-        String english = parts[0].replaceFirst("^(1줄:|1\\.|-)\\s*", "").strip();
-        String korean = parts.length > 1 ? parts[1].replaceFirst("^(2줄:|2\\.|-)\\s*", "").strip() : "";
-        return new Suggestion(english, korean);
+        return parseSuggestion(out);
+    }
+
+    /** "EN: …" / "KO: …" 두 줄을 꺼냄. 형식이 어긋나도 영어(알파벳이 많은 줄)를 영어 자리에. */
+    static Suggestion parseSuggestion(String out) {
+        String en = "", ko = "";
+        java.util.List<String> rest = new java.util.ArrayList<>();
+        for (String line : out.split("\\R+")) {
+            String t = line.strip().replaceAll("^[*\\-\\s]+", "");
+            if (t.isEmpty()) continue;
+            if (t.matches("(?i)^EN\\s*[:：].*")) en = t.replaceFirst("(?i)^EN\\s*[:：]\\s*", "");
+            else if (t.matches("(?i)^KO\\s*[:：].*")) ko = t.replaceFirst("(?i)^KO\\s*[:：]\\s*", "");
+            else rest.add(t);
+        }
+        for (String t : rest) {
+            if (en.isEmpty() && isEnglish(t)) en = t;
+            else if (ko.isEmpty() && !isEnglish(t)) ko = t;
+        }
+        // 영어 자리에 한국어가 왔으면 바꿔 끼움
+        if (!en.isEmpty() && !isEnglish(en) && isEnglish(ko)) { String x = en; en = ko; ko = x; }
+        en = en.replaceAll("^[\"“]|[\"”]$", "").strip();
+        if (en.isEmpty() || !isEnglish(en)) return new Suggestion("(영어 대답을 만들지 못했어요. 다시 눌러 보세요.)", "");
+        return new Suggestion(en, ko.strip());
+    }
+
+    static boolean isEnglish(String t) {
+        long latin = t.chars().filter(c -> (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')).count();
+        long hangul = t.chars().filter(c -> c >= 0xAC00 && c <= 0xD7A3).count();
+        return latin > 0 && latin >= hangul * 2;
     }
 
     private static String clip(String s, int n) { return s.length() > n ? s.substring(0, n) : s; }
