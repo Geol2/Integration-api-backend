@@ -73,6 +73,38 @@ public class CloudSttService {
         }
     }
 
+    /** 실시간 인식용 임시 토큰(30초). 안경 앱이 이걸로 Deepgram에 직접 붙고, 진짜 키는 서버에만 있어요. */
+    public record Grant(String token, int expiresIn, String model) {}
+
+    public Grant grant() {
+        if (!isAvailable()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "클라우드 음성 인식 키가 없어요.");
+        HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.deepgram.com/v1/auth/grant"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Token " + key)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"ttl_seconds\":30}"))
+                .build();
+        try {
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (res.statusCode() != 200) {
+                log.error("Deepgram 토큰 실패 {} {}", res.statusCode(), res.body().length() > 300 ? res.body().substring(0, 300) : res.body());
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "실시간 인식을 시작하지 못했어요(" + res.statusCode() + ").");
+            }
+            JsonNode n = json.readTree(res.body());
+            String token = n.path("access_token").asText("");
+            if (token.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "실시간 인식 토큰을 받지 못했어요.");
+            return new Grant(token, n.path("expires_in").asInt(30), model);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "실시간 인식이 중단됐어요.");
+        } catch (Exception e) {
+            log.error("Deepgram 토큰 호출 실패", e);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "음성 인식 서버에 연결하지 못했어요.");
+        }
+    }
+
     static String transcriptOf(JsonNode root) {
         return root.path("results").path("channels").path(0).path("alternatives").path(0)
                 .path("transcript").asText("").strip();

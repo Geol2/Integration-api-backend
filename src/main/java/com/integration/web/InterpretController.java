@@ -74,6 +74,31 @@ public class InterpretController {
         return new Chunk(en, ko);
     }
 
+    /** 실시간 인식 시작: Deepgram 임시 토큰(주인만 — 요금이 주인 계정으로 나가요). */
+    @PostMapping("/live-token")
+    public com.integration.ai.CloudSttService.Grant liveToken() {
+        User u = currentUser.require();
+        if (!cloud.isAvailable() || !ai.isOwner(u.getEmail()))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "실시간 인식을 쓸 수 없어요.");
+        return cloud.grant();
+    }
+
+    public record TranslateRequest(String text) {}
+
+    /** 실시간 인식으로 끝난 문장 하나를 한국어로. */
+    @PostMapping("/translate")
+    public Chunk translate(@RequestBody TranslateRequest req) {
+        User u = currentUser.require();
+        if (!ai.isEnabledFor(u.getEmail()))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "통역을 쓰려면 ⋯ → Claude API 키에서 내 API 키를 등록해 주세요.");
+        String en = req == null || req.text() == null ? "" : clip(req.text().strip(), 600);
+        if (en.length() < 2) return new Chunk("", "");
+        long t0 = System.currentTimeMillis();
+        String ko = ai.quick(u.getId(), u.getEmail(), TRANSLATE, en, 400).strip();
+        log.info("통역 번역 {}ms: \"{}\"", System.currentTimeMillis() - t0, en.length() > 80 ? en.substring(0, 80) : en);
+        return new Chunk(en, ko);
+    }
+
     @PostMapping("/suggest")
     public Suggestion suggest(@RequestBody SuggestRequest req) {
         User u = requireAllowed();
