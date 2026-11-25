@@ -107,7 +107,7 @@ public class UserApiKeyService {
         }
     }
 
-    private String encrypt(String plain) {
+    String encrypt(String plain) {
         try {
             byte[] iv = new byte[12];
             RNG.nextBytes(iv);
@@ -123,7 +123,7 @@ public class UserApiKeyService {
         }
     }
 
-    private String decrypt(String b64) {
+    String decrypt(String b64) {
         try {
             byte[] all = Base64.getDecoder().decode(b64);
             Cipher c = Cipher.getInstance("AES/GCM/NoPadding");

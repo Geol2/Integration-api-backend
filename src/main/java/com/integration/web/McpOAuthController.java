@@ -186,7 +186,7 @@ public class McpOAuthController {
 
     // ---------- 공통 ----------
 
-    private static String s256(String verifier) {
+    static String s256(String verifier) {
         try {
             byte[] d = MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(d);
