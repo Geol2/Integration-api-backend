@@ -117,7 +117,8 @@ public class InterpretController {
         long t0 = System.currentTimeMillis();
         String out = ai.quick(u.getId(), u.getEmail(), SUGGEST, sb.toString(), 200).strip();
         Suggestion sg = parseSuggestion(out);
-        log.info("통역 추천 {}ms ({}줄): \"{}\"", System.currentTimeMillis() - t0, lines.size(), sg.english());
+        log.info("통역 추천 {}ms ({}줄): \"{}\" ← 원문 \"{}\"", System.currentTimeMillis() - t0, lines.size(), sg.english(),
+                out.replaceAll("\\s+", " ").length() > 200 ? out.replaceAll("\\s+", " ").substring(0, 200) : out.replaceAll("\\s+", " "));
         return sg;
     }
 
@@ -139,7 +140,17 @@ public class InterpretController {
         // 영어 자리에 한국어가 왔으면 바꿔 끼움
         if (!en.isEmpty() && !isEnglish(en) && isEnglish(ko)) { String x = en; en = ko; ko = x; }
         en = en.replaceAll("^[\"“]|[\"”]$", "").strip();
-        if (en.isEmpty() || !isEnglish(en)) return new Suggestion("(영어 대답을 만들지 못했어요. 다시 눌러 보세요.)", "");
+        // 형식이 완전히 어긋나도, 답 안에 영어 문장이 있으면 그걸 씀
+        if (en.isEmpty() || !isEnglish(en)) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9 ,.'’!?\\-]{5,}").matcher(out);
+            String best = "";
+            while (m.find()) {
+                String c = m.group().strip();
+                if (!c.matches("(?i)^(EN|KO)\\b.*") && c.length() > best.length()) best = c;
+            }
+            if (best.isEmpty()) return new Suggestion("(영어 대답을 만들지 못했어요. 다시 눌러 보세요.)", "");
+            en = best;
+        }
         return new Suggestion(en, ko.strip());
     }
 
