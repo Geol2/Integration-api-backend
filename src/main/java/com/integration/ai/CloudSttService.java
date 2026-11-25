@@ -43,13 +43,14 @@ public class CloudSttService {
     /** 16bit 모노 PCM → 텍스트. 못 알아들으면 빈 문자열. */
     public String transcribe(byte[] pcm, int sampleRate, String lang) {
         if (!isAvailable()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "클라우드 음성 인식 키가 없어요.");
-        String q = "model=" + enc(model) + "&language=" + enc(lang) + "&smart_format=true&punctuate=true"
-                + "&encoding=linear16&sample_rate=" + sampleRate + "&channels=1";
+        // 파일 방식은 WAV로 보내야 확실해요(헤더 없는 PCM은 형식을 못 알아볼 수 있음). 작은 소리는 키워서.
+        String q = "model=" + enc(model) + "&language=" + enc(lang) + "&smart_format=true&punctuate=true";
+        byte[] wav = SttService.wav(SttService.normalize(pcm), sampleRate);
         HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.deepgram.com/v1/listen?" + q))
                 .timeout(Duration.ofSeconds(15))
                 .header("Authorization", "Token " + key)
-                .header("Content-Type", "application/octet-stream")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(pcm))
+                .header("Content-Type", "audio/wav")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(wav))
                 .build();
         try {
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
