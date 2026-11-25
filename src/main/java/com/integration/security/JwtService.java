@@ -95,6 +95,11 @@ public class JwtService {
         }
     }
 
+    /** 토큰 발급 시각(초 단위). */
+    public Instant issuedAt(String token) {
+        return claims(token).getIssuedAt().toInstant();
+    }
+
     private Claims claims(String token) {
         return Jwts.parser()
                 .verifyWith(key)

@@ -44,6 +44,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = header.substring(7);
             try {
                 String email = jwtService.extractEmail(token);
+                // 비밀번호를 바꾸기 전에 받은 토큰이면(털린 토큰 포함) 거부 → 그 기기는 다시 로그인해야 함
+                if (userDetailsService.issuedBeforePasswordChange(email, jwtService.issuedAt(token))) {
+                    throw new UsernameNotFoundException("비밀번호 변경 전 토큰");
+                }
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
                 var authToken = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());

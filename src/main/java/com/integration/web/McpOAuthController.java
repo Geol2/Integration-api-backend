@@ -163,7 +163,13 @@ public class McpOAuthController {
                 if (verifier.length() < 43 || !s256(verifier).equals(c.get("cc", String.class))) return oauthError("invalid_grant", "PKCE 확인 실패");
                 email = c.getSubject();
             } else if ("refresh_token".equals(grant)) {
-                email = jwt.parseTyped(p.getOrDefault("refresh_token", ""), TYP_REFRESH).getSubject();
+                Claims c = jwt.parseTyped(p.getOrDefault("refresh_token", ""), TYP_REFRESH);
+                email = c.getSubject();
+                // 비밀번호를 바꾸기 전에 받은 갱신 토큰이면 커넥터도 다시 연결해야 함
+                Instant iat = c.getIssuedAt().toInstant();
+                boolean stale = users.findByEmail(email).map(u -> u.getPasswordChangedAt() != null
+                        && iat.isBefore(u.getPasswordChangedAt())).orElse(true);
+                if (stale) return oauthError("invalid_grant", "비밀번호가 바뀌어 다시 연결해야 해요.");
             } else {
                 return oauthError("unsupported_grant_type", grant);
             }

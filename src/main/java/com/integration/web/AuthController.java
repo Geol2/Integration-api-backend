@@ -56,6 +56,10 @@ public class AuthController {
             @Email @NotBlank String email,
             @NotBlank String password) {}
 
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank @Size(min = 8, max = 100) String newPassword) {}
+
     public record ForgotPasswordRequest(@Email @NotBlank String email) {}
 
     public record ResetPasswordRequest(
@@ -129,10 +133,29 @@ public class AuthController {
         User user = users.findByEmail(req.email())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account not found"));
         user.setPasswordHash(passwordEncoder.encode(req.password()));
+        user.setPasswordChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
         users.save(user);
         // No auto-login: the user re-enters the new password so it's committed to memory,
         // and any device that had the old password stays logged out until it's used.
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 로그인한 상태에서 비밀번호 바꾸기. 지금 비밀번호를 확인한 뒤 바꾸고,
+     * 이전에 발급된 토큰은 모두 무효로 만들어 다른 기기(털린 곳 포함)는 로그아웃됩니다.
+     * 이 기기는 새 토큰을 돌려받아 로그인이 유지돼요.
+     */
+    @PostMapping("/change-password")
+    public AuthResponse changePassword(@Valid @RequestBody ChangePasswordRequest req) {
+        User user = currentUser.require();
+        if (!passwordEncoder.matches(req.currentPassword(), user.getPasswordHash()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지금 비밀번호가 맞지 않아요.");
+        if (req.currentPassword().equals(req.newPassword()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "새 비밀번호가 지금과 같아요.");
+        user.setPasswordHash(passwordEncoder.encode(req.newPassword()));
+        user.setPasswordChangedAt(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
+        users.save(user);
+        return new AuthResponse(jwtService.generateToken(user.getEmail()), UserResponse.of(user));
     }
 
     @GetMapping("/me")
