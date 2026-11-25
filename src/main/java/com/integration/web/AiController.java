@@ -46,8 +46,12 @@ public class AiController {
     public record GlassesPinRequest(Long conversationId, Long turnId) {}
     private final java.util.Map<Long, GlassesPin> glassesPins = new java.util.concurrent.ConcurrentHashMap<>();
 
+    private final com.integration.ai.UserApiKeyService userKeys;
+
     public AiController(AiService ai, AiJobService jobs, ProjectStore projects, SttService stt,
-                        ConversationService conversations, CurrentUserService currentUser) {
+                        ConversationService conversations, CurrentUserService currentUser,
+                        com.integration.ai.UserApiKeyService userKeys) {
+        this.userKeys = userKeys;
         this.ai = ai;
         this.jobs = jobs;
         this.projects = projects;
@@ -60,14 +64,36 @@ public class AiController {
      * voice: 서버에 음성 인식(whisper)이 설치돼 있어 마이크로 물을 수 있는지.
      * engine: 구독(Claude Code) 상태와 API 키 유무 — 화면에 "구독으로 답하는 중 / 한도라 API" 표시용.
      */
-    public record StatusResponse(boolean enabled, boolean voice, AiService.EngineState engine) {}
+    /** owner: 서버 주인(서버 키·구독·프로젝트). key: 내 API 키 등록 상태(다른 사용자용). */
+    public record StatusResponse(boolean enabled, boolean voice, AiService.EngineState engine, boolean owner,
+                                 com.integration.ai.UserApiKeyService.Info key) {}
     public record TranscribeResponse(String text) {}
 
     /** 앱이 "Claude에게 묻기" 메뉴를 보여줄지 정합니다. 허용된 계정이 아니면 메뉴 자체가 숨겨집니다. */
     @GetMapping("/status")
     public StatusResponse status() {
-        boolean enabled = ai.isEnabledFor(currentUser.require().getEmail());
-        return new StatusResponse(enabled, enabled && stt.isAvailable(), enabled ? ai.engineState() : null);
+        User u = currentUser.require();
+        boolean enabled = ai.isEnabledFor(u.getEmail());
+        boolean owner = ai.isOwner(u.getEmail());
+        return new StatusResponse(enabled, enabled && stt.isAvailable(), owner ? ai.engineState() : null, owner, userKeys.info(u.getId()));
+    }
+
+    // ---------- 내 API 키 (다른 사용자가 자기 비용으로 쓰기) ----------
+    public record KeyRequest(String key) {}
+
+    @GetMapping("/key")
+    public com.integration.ai.UserApiKeyService.Info myKey() {
+        return userKeys.info(currentUser.require().getId());
+    }
+
+    @PutMapping("/key")
+    public com.integration.ai.UserApiKeyService.Info saveKey(@RequestBody KeyRequest req) {
+        return userKeys.save(currentUser.require().getId(), req.key());
+    }
+
+    @DeleteMapping("/key")
+    public void deleteKey() {
+        userKeys.delete(currentUser.require().getId());
     }
 
     /** audio: PCM 16bit little-endian 모노. rate: 샘플레이트(기본 16000). */
@@ -204,8 +230,8 @@ public class AiController {
 
     @GetMapping("/projects")
     public List<ProjectStore.Project> listProjects() {
-        requireAllowed();
-        return projects.list();
+        // 프로젝트(서버에 받은 저장소)는 서버 주인만 — 다른 사용자에겐 빈 목록
+        return ai.isOwner(requireAllowed().getEmail()) ? projects.list() : List.of();
     }
 
     /** privateRepos: 서버에 GitHub 토큰이 있어 비공개 저장소도 받을 수 있는지. */
@@ -213,35 +239,43 @@ public class AiController {
 
     @GetMapping("/projects/settings")
     public ProjectSettings projectSettings() {
-        requireAllowed();
+        requireOwner();
         return new ProjectSettings(projects.privateReposEnabled());
     }
 
     @PostMapping("/projects/git")
     public ProjectStore.Project addGit(@RequestBody AddGitRequest req) {
-        requireAllowed();
+        requireOwner();
         return projects.addGit(req.url(), req.name());
     }
 
     @PostMapping("/projects/{name}/sync")
     public ProjectStore.Project sync(@PathVariable String name) {
-        requireAllowed();
+        requireOwner();
         return projects.sync(name);
     }
 
     @PostMapping("/projects/upload")
     public ProjectStore.Project upload(@RequestParam("name") String name, @RequestParam("file") MultipartFile file) {
-        requireAllowed();
+        requireOwner();
         return projects.upload(name, file);
     }
 
     @DeleteMapping("/projects/{name}")
     public void deleteProject(@PathVariable String name) {
-        requireAllowed();
+        requireOwner();
         projects.delete(name);
     }
 
     // ---------- 공통 ----------
+
+    private User requireOwner() {
+        User user = requireAllowed();
+        if (!ai.isOwner(user.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "프로젝트 기능은 아직 서버 주인 계정만 쓸 수 있어요.");
+        }
+        return user;
+    }
 
     private User requireAllowed() {
         User user = currentUser.require();

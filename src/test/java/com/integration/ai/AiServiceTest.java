@@ -65,6 +65,16 @@ class AiServiceTest {
     }
 
     @Test
+    void strangerWithoutOwnKeyIsRefusedBeforeAnyCall() {
+        // 서버 키가 있어도, 허용 목록 밖 사용자는 자기 키가 없으면 서버 키로 넘어가지 않고 403 이어야 함
+        AiService ai = new AiService("owner-key", "claude-opus-5-5", "medium", "", 100, 300, "me@example.com", "Asia/Seoul", "http://127.0.0.1:9");
+        org.springframework.web.server.ResponseStatusException e = org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> ai.ask(7L, "stranger@example.com", "안녕", java.util.List.of(), java.util.List.of()));
+        assertThat(e.getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
     void onlyAllowedEmailsCanUseClaude() {
         AiService ai = new AiService("test-key", "claude-opus-5-5", "medium", "", 100, 300, " Me@Example.com , ", "Asia/Seoul");
         assertThat(ai.isEnabledFor("me@example.com")).isTrue();

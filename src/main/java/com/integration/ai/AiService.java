@@ -153,7 +153,8 @@ public class AiService {
                 .build();
     }
 
-    private final AnthropicClient client;   // 키가 없으면 null — 기능 꺼짐
+    private final AnthropicClient client;   // 키가 없으면 null — 기능 꺼짐 (서버 주인 전용)
+    private final String baseUrl;            // 테스트용 가짜 서버 주소(보통 빈 값)
     private final String model;
     private final BetaOutputConfig.Effort effort;
     private final String effortName;   // Claude Code --effort 에 그대로 넘김
@@ -214,6 +215,7 @@ public class AiService {
                 .timeout(Duration.ofSeconds(180));
         if (baseUrl != null && !baseUrl.isBlank()) cb.baseUrl(baseUrl).maxRetries(0);
         this.client = apiKey.isBlank() ? null : cb.build();
+        this.baseUrl = baseUrl;
         this.model = model;
         this.effort = BetaOutputConfig.Effort.of(effort);
         this.effortName = effort;
@@ -234,10 +236,41 @@ public class AiService {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
-    /** 이 사용자가 Claude 기능을 쓸 수 있는지 (키가 있고, 허용 목록에 있음). 앱이 메뉴를 숨기는 데 씁니다. */
-    public boolean isEnabledFor(String email) {
+    /** 서버 주인(허용 목록) — 서버 키·구독을 쓰는 계정. */
+    public boolean isOwner(String email) {
         boolean anyEngine = client != null || (claudeCode != null && claudeCode.installed());
         return anyEngine && email != null && allowedEmails.contains(email.strip().toLowerCase(Locale.ROOT));
+    }
+
+    /** 이 사용자가 Claude 기능을 쓸 수 있는지: 서버 주인이거나, 자기 API 키를 등록한 사용자. 앱이 메뉴를 숨기는 데 씁니다. */
+    public boolean isEnabledFor(String email) {
+        return isOwner(email) || (userKeys != null && userKeys.hasKey(email));
+    }
+
+    /** 다른 사용자가 등록한 자기 API 키(BYOK). 없으면(테스트 등) 주인만 씁니다. */
+    private UserApiKeyService userKeys;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setUserKeys(UserApiKeyService userKeys) {
+        this.userKeys = userKeys;
+    }
+
+    /** 사용자 키별 클라이언트(키 해시 → 클라이언트). 많아지면 비웁니다. */
+    private final Map<String, AnthropicClient> userClients = new ConcurrentHashMap<>();
+
+    private AnthropicClient clientFor(String key) {
+        String h;
+        try {
+            h = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        if (userClients.size() > 50) userClients.clear();
+        return userClients.computeIfAbsent(h, x -> {
+            AnthropicOkHttpClient.Builder cb = AnthropicOkHttpClient.builder().apiKey(key).timeout(Duration.ofSeconds(180));
+            if (baseUrl != null && !baseUrl.isBlank()) cb.baseUrl(baseUrl).maxRetries(0);
+            return cb.build();
+        });
     }
 
     /** 구독(Claude Code)으로 먼저 답하기. 없으면(테스트 등) API만 씁니다. */
@@ -283,14 +316,24 @@ public class AiService {
      */
     public Answer ask(Long userId, String email, String question, List<Turn> history, List<Image> images,
                       ProjectRef project, Consumer<String> progress) {
+        List<BetaContentBlockParam> imageBlocks = toImageBlocks(images);
+
+        // ── 다른 사용자: 자기 키로만. 서버 주인의 키·구독(client, claudeCode)은 절대 쓰지 않습니다. ──
+        if (!isOwner(email)) {
+            String key = userKeys == null ? null : userKeys.keyFor(userId).orElse(null);
+            if (key == null) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Claude를 쓰려면 ⋯ → Claude API 키에서 내 Anthropic API 키를 등록해 주세요.");
+            }
+            if (project != null) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "프로젝트(코드 읽기) 기능은 아직 서버 주인 계정만 쓸 수 있어요.");
+            }
+            takeUserQuota(userId);
+            return askApi(clientFor(key), true, question, history, imageBlocks, null, progress).withEngine("byok");
+        }
+
         if (client == null && (claudeCode == null || !claudeCode.installed())) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
         }
-        if (!isEnabledFor(email)) {
-            // 스토어에서 받은 다른 사용자가 키 주인의 비용으로 쓰지 못하게 막습니다.
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 계정은 Claude 기능을 쓸 수 없어요.");
-        }
-        List<BetaContentBlockParam> imageBlocks = toImageBlocks(images);
 
         // 1) 구독(Claude Code)으로 먼저. 한도에 걸리거나 쓸 수 없으면 2) API 키로.
         if (claudeCode != null && claudeCode.ready()) {
@@ -313,7 +356,12 @@ public class AiService {
         }
         // API 비용 안전장치(하루 횟수)는 API로 답할 때만 셉니다.
         takeQuota(userId);
+        return askApi(client, false, question, history, imageBlocks, project, progress);
+    }
 
+    /** API 키로 답하기(주인 키 또는 사용자 키). byok: 사용자 키면 오류 문구를 그 사람에게 맞게. */
+    private Answer askApi(AnthropicClient c, boolean byok, String question, List<Turn> history,
+                          List<BetaContentBlockParam> imageBlocks, ProjectRef project, Consumer<String> progress) {
         List<BetaTextBlockParam> system = new ArrayList<>();
         // 규칙 + 프로젝트 자료는 매번 같으므로 캐시합니다 (두 번째 질문부터 싸고 빠름).
         system.add(BetaTextBlockParam.builder()
@@ -362,7 +410,7 @@ public class AiService {
             params.toolChoice(BetaToolChoiceAuto.builder().build());
         }
 
-        BetaMessage res = call(params);
+        BetaMessage res = call(c, byok, params);
         for (int turn = 1; tools != null && BetaStopReason.TOOL_USE.equals(res.stopReason().orElse(null)); turn++) {
             params.addMessage(res.toParam());
             List<BetaContentBlockParam> results = new ArrayList<>();
@@ -377,17 +425,23 @@ public class AiService {
                 progress.accept("정리하는 중");
                 params.toolChoice(BetaToolChoiceNone.builder().build());
             }
-            res = call(params);
+            res = call(c, byok, params);
         }
         return toAnswer(res);
     }
 
-    private BetaMessage call(MessageCreateParams.Builder params) {
+    private BetaMessage call(AnthropicClient c, boolean byok, MessageCreateParams.Builder params) {
         try {
-            return client.beta().messages().create(params.build());
+            return c.beta().messages().create(params.build());
         } catch (RateLimitException e) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 물어봐 주세요.");
         } catch (AnthropicServiceException e) {
+            if (byok && (e.statusCode() == 401 || e.statusCode() == 403)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "등록한 API 키가 거절됐어요. ⋯ → Claude API 키에서 다시 등록해 주세요.");
+            }
+            if (byok && e.statusCode() == 400 && String.valueOf(e.getMessage()).toLowerCase(Locale.ROOT).contains("credit")) {
+                throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "API 키 계정의 크레딧이 부족해요. Anthropic Console에서 충전해 주세요.");
+            }
             log.error("Claude API 오류 status={}", e.statusCode(), e);
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Claude 응답을 받지 못했어요.");
         } catch (AnthropicIoException e) {
@@ -535,6 +589,16 @@ public class AiService {
         }
         if (recent.size() % 2 == 1) recent = recent.subList(0, recent.size() - 1);
         return recent;
+    }
+
+    /** 사용자 키로 답할 때: 그 사람 하루 횟수만 셉니다(서버 전체 한도·주인 한도와 무관). */
+    private void takeUserQuota(Long userId) {
+        LocalDate today = LocalDate.now(zone);
+        DailyCount next = usage.compute(userId, (id, c) ->
+                c == null || !c.day().equals(today) ? new DailyCount(today, 1) : new DailyCount(today, c.count() + 1));
+        if (next.count() > dailyLimit) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "오늘 질문 횟수(" + dailyLimit + "회)를 다 썼어요.");
+        }
     }
 
     private void takeQuota(Long userId) {
