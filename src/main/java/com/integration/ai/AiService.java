@@ -608,11 +608,14 @@ public class AiService {
         if (n.count() > quickDailyLimit) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "오늘 통역 횟수를 다 썼어요.");
 
         AnthropicClient c;
-        boolean byok = !isOwner(email);
-        if (byok) {
-            String key = userKeys == null ? null : userKeys.keyFor(userId).orElse(null);
-            if (key == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "통역을 쓰려면 ⋯ → Claude API 키에서 내 API 키를 등록해 주세요.");
-            c = clientFor(key);
+        boolean owner = isOwner(email);
+        // 내 키가 등록돼 있으면 주인이어도 그 키로(통역은 빠른 응답이 중요해서 CLI보다 API가 나아요)
+        String myKey = userKeys == null ? null : userKeys.keyFor(userId).orElse(null);
+        boolean byok = !owner || myKey != null;
+        if (myKey != null) {
+            c = clientFor(myKey);
+        } else if (!owner) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "통역을 쓰려면 ⋯ → Claude API 키에서 내 API 키를 등록해 주세요.");
         } else if (client != null) {
             c = client;
         } else if (claudeCode != null && claudeCode.ready()) {
@@ -623,7 +626,11 @@ public class AiService {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 통역을 할 수 없어요: " + e.getMessage());
             }
         } else {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 기능이 꺼져 있어요.");
+            ClaudeCodeEngine.State st = claudeCode == null ? null : claudeCode.state();
+            String why = st == null || !st.installed() ? "서버에서 Claude Code를 찾지 못했어요"
+                    : st.pausedUntil() != null ? "구독을 잠시 쉬는 중이에요(" + st.reason() + ")" : "구독을 쓸 수 없어요";
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    why + ". ⋯ → Claude API 키에 내 키를 등록하면 그 키로 통역해요.");
         }
         MessageCreateParams.Builder params = MessageCreateParams.builder()
                 .model(quickModel)
